@@ -36,3 +36,12 @@ CREATE TABLE IF NOT EXISTS movimientos_anuales (
     detalle_anomalia VARCHAR(255),
     PRIMARY KEY (cuenta_id, fecha, transaccion, monto)
 );
+
+CREATE TABLE IF NOT EXISTS resumen_anual (
+    cuenta_id BIGINT PRIMARY KEY,
+    total_movimientos INTEGER,
+    total_ingresos NUMERIC(15,2),
+    total_egresos NUMERIC(15,2),
+    saldo_anual NUMERIC(15,2),
+    total_anomalias INTEGER
+);

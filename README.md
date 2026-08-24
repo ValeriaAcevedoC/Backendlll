@@ -32,6 +32,7 @@ La aplicacion carga datos desde `src/main/resources/data`, aplica reglas de vali
     |   |-- java/cl/duoc/bank_batch
     |   |   |-- config
     |   |   |-- model
+    |   |   |-- policy
     |   |   `-- processor
     |   `-- resources
     |       |-- application.properties
@@ -189,6 +190,27 @@ El resumen considera:
 - saldo anual
 - total de anomalias
 
+## Tolerancia a fallos y escalamiento
+
+En esta iteracion se agrego tolerancia a fallos y procesamiento paralelo a los tres steps principales (`transaccionStep`, `interesStep`, `movimientoAnualStep`).
+
+### Politica de omision personalizada (SkipPolicy)
+
+Se implemento la clase `CustomSkipPolicy` (`cl.duoc.bank_batch.policy.CustomSkipPolicy`), que define que excepciones pueden omitirse durante la lectura o el procesamiento sin detener el step completo:
+
+- `FlatFileParseException`: una linea del CSV no calza con el formato esperado.
+- `NumberFormatException`: un campo numerico no se puede parsear.
+
+Cada registro omitido se informa por consola. Si se supera el limite de omisiones configurado, el step se detiene lanzando `SkipLimitExceededException`.
+
+Los tres steps se configuran con `.faultTolerant().skipPolicy(customSkipPolicy)` para activar esta politica.
+
+### Escalamiento con TaskExecutor
+
+Se agrego la clase `BatchConfig` (`cl.duoc.bank_batch.config.BatchConfig`), que define un `ThreadPoolTaskExecutor` con un pool fijo de 3 hilos (`Batch-Thread-`).
+
+Los tres steps se configuran con `.taskExecutor(taskExecutor)`, de modo que los chunks (tamaño 5) se procesan en paralelo entre los 3 hilos disponibles.
+
 ## Base de datos
 
 El archivo `src/main/resources/schema.sql` crea las tablas principales:
@@ -196,21 +218,7 @@ El archivo `src/main/resources/schema.sql` crea las tablas principales:
 - `transacciones_procesadas`
 - `cuentas_intereses`
 - `movimientos_anuales`
-
-Nota: el job `estadoCuentaJob` tambien utiliza la tabla `resumen_anual`. Si la aplicacion falla indicando que esa relacion no existe, se debe agregar su definicion al esquema de base de datos.
-
-Ejemplo de tabla esperada:
-
-```sql
-CREATE TABLE IF NOT EXISTS resumen_anual (
-    cuenta_id BIGINT PRIMARY KEY,
-    total_movimientos BIGINT,
-    total_ingresos NUMERIC(15,2),
-    total_egresos NUMERIC(15,2),
-    saldo_anual NUMERIC(15,2),
-    total_anomalias BIGINT
-);
-```
+- `resumen_anual`
 
 ## Ejecutar un job especifico
 
