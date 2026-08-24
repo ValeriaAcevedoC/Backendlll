@@ -4,6 +4,8 @@ import javax.sql.DataSource;
 
 import cl.duoc.bank_batch.model.MovimientoAnual;
 import cl.duoc.bank_batch.processor.MovimientoAnualProcessor;
+import cl.duoc.bank_batch.policy.CustomSkipPolicy;
+import org.springframework.core.task.AsyncTaskExecutor;
 
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.JobBuilder;
@@ -79,6 +81,8 @@ public class EstadoCuentaJobConfig {
             PlatformTransactionManager transactionManager,
             FlatFileItemReader<MovimientoAnual> movimientoAnualReader,
             MovimientoAnualProcessor movimientoAnualProcessor,
+            CustomSkipPolicy customSkipPolicy,
+            AsyncTaskExecutor taskExecutor,
             JdbcBatchItemWriter<MovimientoAnual> movimientoAnualWriter) {
 
         return new StepBuilder("movimientoAnualStep", jobRepository)
@@ -87,6 +91,9 @@ public class EstadoCuentaJobConfig {
                 .reader(movimientoAnualReader)
                 .processor(movimientoAnualProcessor)
                 .writer(movimientoAnualWriter)
+                .faultTolerant()
+                .skipPolicy(customSkipPolicy)
+                .taskExecutor(taskExecutor)
                 .build();
     }
 

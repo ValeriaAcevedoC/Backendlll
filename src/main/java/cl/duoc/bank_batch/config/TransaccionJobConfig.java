@@ -18,6 +18,8 @@ import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import cl.duoc.bank_batch.processor.TransaccionProcessor;
+import cl.duoc.bank_batch.policy.CustomSkipPolicy;
+import org.springframework.core.task.AsyncTaskExecutor;
 
 @Configuration
 public class TransaccionJobConfig {
@@ -69,7 +71,9 @@ public class TransaccionJobConfig {
         PlatformTransactionManager transactionManager,
         FlatFileItemReader<Transaccion> transaccionReader,
         TransaccionProcessor transaccionProcessor,
-        JdbcBatchItemWriter<Transaccion> transaccionWriter) {
+        JdbcBatchItemWriter<Transaccion> transaccionWriter,
+        CustomSkipPolicy customSkipPolicy,
+        AsyncTaskExecutor taskExecutor) {
 
         return new StepBuilder("transaccionStep", jobRepository)
             .<Transaccion, Transaccion>chunk(5)
@@ -77,6 +81,9 @@ public class TransaccionJobConfig {
             .reader(transaccionReader)
             .processor(transaccionProcessor)
             .writer(transaccionWriter)
+            .faultTolerant()
+            .skipPolicy(customSkipPolicy)
+            .taskExecutor(taskExecutor)
             .build();
     }
 

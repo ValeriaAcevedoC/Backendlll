@@ -13,6 +13,8 @@ import javax.sql.DataSource;
 import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter;
 import org.springframework.batch.infrastructure.item.database.builder.JdbcBatchItemWriterBuilder;
 import cl.duoc.bank_batch.processor.InteresProcessor;
+import cl.duoc.bank_batch.policy.CustomSkipPolicy;
+import org.springframework.core.task.AsyncTaskExecutor;
 
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.JobBuilder;
@@ -88,14 +90,19 @@ public class InteresJobConfig {
             PlatformTransactionManager transactionManager,
             FlatFileItemReader<CuentaInteres> interesReader,
             InteresProcessor interesProcessor,
-            JdbcBatchItemWriter<CuentaInteres> interesWriter) {
-
+            JdbcBatchItemWriter<CuentaInteres> interesWriter,
+            CustomSkipPolicy customSkipPolicy,
+            AsyncTaskExecutor taskExecutor) {
+                
         return new StepBuilder("interesStep", jobRepository)
                 .<CuentaInteres, CuentaInteres>chunk(5)
                 .transactionManager(transactionManager)
                 .reader(interesReader)
                 .processor(interesProcessor)
                 .writer(interesWriter)
+                .faultTolerant()
+                .skipPolicy(customSkipPolicy)
+                .taskExecutor(taskExecutor)
                 .build();
     }
 
