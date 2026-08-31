@@ -4,9 +4,12 @@ import cl.duoc.bank_batch.model.CuentaInteres;
 
 import org.springframework.batch.infrastructure.item.file.FlatFileItemReader;
 import org.springframework.batch.infrastructure.item.file.builder.FlatFileItemReaderBuilder;
+import org.springframework.batch.infrastructure.item.support.SynchronizedItemStreamReader;
+import org.springframework.batch.infrastructure.item.support.builder.SynchronizedItemStreamReaderBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.dao.TransientDataAccessException;
 
 import javax.sql.DataSource;
 
@@ -14,6 +17,7 @@ import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWrite
 import org.springframework.batch.infrastructure.item.database.builder.JdbcBatchItemWriterBuilder;
 import cl.duoc.bank_batch.processor.InteresProcessor;
 import cl.duoc.bank_batch.policy.CustomSkipPolicy;
+import cl.duoc.bank_batch.policy.DataQualityDecider;
 import org.springframework.core.task.AsyncTaskExecutor;
 
 import org.springframework.batch.core.job.Job;
@@ -27,15 +31,19 @@ import org.springframework.transaction.PlatformTransactionManager;
 public class InteresJobConfig {
 
     @Bean
-    public FlatFileItemReader<CuentaInteres> interesReader() {
+    public SynchronizedItemStreamReader<CuentaInteres> interesReader() {
 
-        return new FlatFileItemReaderBuilder<CuentaInteres>()
+        FlatFileItemReader<CuentaInteres> delegate = new FlatFileItemReaderBuilder<CuentaInteres>()
                 .name("interesReader")
                 .resource(new ClassPathResource("data/intereses.csv"))
                 .linesToSkip(1)
                 .delimited()
                 .names("cuentaId", "nombre", "saldo", "edad", "tipo")
                 .targetType(CuentaInteres.class)
+                .build();
+
+        return new SynchronizedItemStreamReaderBuilder<CuentaInteres>()
+                .delegate(delegate)
                 .build();
     }
 
@@ -88,7 +96,7 @@ public class InteresJobConfig {
     public Step interesStep(
             JobRepository jobRepository,
             PlatformTransactionManager transactionManager,
-            FlatFileItemReader<CuentaInteres> interesReader,
+            SynchronizedItemStreamReader<CuentaInteres> interesReader,
             InteresProcessor interesProcessor,
             JdbcBatchItemWriter<CuentaInteres> interesWriter,
             CustomSkipPolicy customSkipPolicy,
@@ -101,6 +109,8 @@ public class InteresJobConfig {
                 .processor(interesProcessor)
                 .writer(interesWriter)
                 .faultTolerant()
+                .retry(TransientDataAccessException.class)
+                .retryLimit(3)
                 .skipPolicy(customSkipPolicy)
                 .taskExecutor(taskExecutor)
                 .build();
@@ -109,10 +119,14 @@ public class InteresJobConfig {
     @Bean
     public Job interesJob(
             JobRepository jobRepository,
-            Step interesStep) {
+            Step interesStep,
+            DataQualityDecider dataQualityDecider) {
 
         return new JobBuilder("interesJob", jobRepository)
                 .start(interesStep)
+                .next(dataQualityDecider).on(DataQualityDecider.CALIDAD_INSUFICIENTE).fail()
+                .from(dataQualityDecider).on("*").end()
+                .end()
                 .build();
     }
 }

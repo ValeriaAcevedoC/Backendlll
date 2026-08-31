@@ -5,6 +5,7 @@ import javax.sql.DataSource;
 import cl.duoc.bank_batch.model.MovimientoAnual;
 import cl.duoc.bank_batch.processor.MovimientoAnualProcessor;
 import cl.duoc.bank_batch.policy.CustomSkipPolicy;
+import cl.duoc.bank_batch.policy.DataQualityDecider;
 import org.springframework.core.task.AsyncTaskExecutor;
 
 import org.springframework.batch.core.job.Job;
@@ -17,10 +18,13 @@ import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWrite
 import org.springframework.batch.infrastructure.item.database.builder.JdbcBatchItemWriterBuilder;
 import org.springframework.batch.infrastructure.item.file.FlatFileItemReader;
 import org.springframework.batch.infrastructure.item.file.builder.FlatFileItemReaderBuilder;
+import org.springframework.batch.infrastructure.item.support.SynchronizedItemStreamReader;
+import org.springframework.batch.infrastructure.item.support.builder.SynchronizedItemStreamReaderBuilder;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -28,15 +32,19 @@ import org.springframework.transaction.PlatformTransactionManager;
 public class EstadoCuentaJobConfig {
 
     @Bean
-    public FlatFileItemReader<MovimientoAnual> movimientoAnualReader() {
+    public SynchronizedItemStreamReader<MovimientoAnual> movimientoAnualReader() {
 
-        return new FlatFileItemReaderBuilder<MovimientoAnual>()
+        FlatFileItemReader<MovimientoAnual> delegate = new FlatFileItemReaderBuilder<MovimientoAnual>()
                 .name("movimientoAnualReader")
                 .resource(new ClassPathResource("data/cuentas_anuales.csv"))
                 .linesToSkip(1)
                 .delimited()
                 .names("cuentaId", "fecha", "transaccion", "monto", "descripcion")
                 .targetType(MovimientoAnual.class)
+                .build();
+
+        return new SynchronizedItemStreamReaderBuilder<MovimientoAnual>()
+                .delegate(delegate)
                 .build();
     }
 
@@ -79,7 +87,7 @@ public class EstadoCuentaJobConfig {
     public Step movimientoAnualStep(
             JobRepository jobRepository,
             PlatformTransactionManager transactionManager,
-            FlatFileItemReader<MovimientoAnual> movimientoAnualReader,
+            SynchronizedItemStreamReader<MovimientoAnual> movimientoAnualReader,
             MovimientoAnualProcessor movimientoAnualProcessor,
             CustomSkipPolicy customSkipPolicy,
             AsyncTaskExecutor taskExecutor,
@@ -92,6 +100,8 @@ public class EstadoCuentaJobConfig {
                 .processor(movimientoAnualProcessor)
                 .writer(movimientoAnualWriter)
                 .faultTolerant()
+                .retry(TransientDataAccessException.class)
+                .retryLimit(3)
                 .skipPolicy(customSkipPolicy)
                 .taskExecutor(taskExecutor)
                 .build();
@@ -147,11 +157,14 @@ public class EstadoCuentaJobConfig {
     public Job estadoCuentaJob(
             JobRepository jobRepository,
             Step movimientoAnualStep,
-            Step resumenAnualStep) {
+            Step resumenAnualStep,
+            DataQualityDecider dataQualityDecider) {
 
         return new JobBuilder("estadoCuentaJob", jobRepository)
                 .start(movimientoAnualStep)
-                .next(resumenAnualStep)
+                .next(dataQualityDecider).on(DataQualityDecider.CALIDAD_INSUFICIENTE).fail()
+                .from(dataQualityDecider).on("*").to(resumenAnualStep)
+                .end()
                 .build();
     }
 }

@@ -3,9 +3,12 @@ package cl.duoc.bank_batch.config;
 import cl.duoc.bank_batch.model.Transaccion;
 import org.springframework.batch.infrastructure.item.file.FlatFileItemReader;
 import org.springframework.batch.infrastructure.item.file.builder.FlatFileItemReaderBuilder;
+import org.springframework.batch.infrastructure.item.support.SynchronizedItemStreamReader;
+import org.springframework.batch.infrastructure.item.support.builder.SynchronizedItemStreamReaderBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.dao.TransientDataAccessException;
 import javax.sql.DataSource;
 
 import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter;
@@ -19,21 +22,26 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import cl.duoc.bank_batch.processor.TransaccionProcessor;
 import cl.duoc.bank_batch.policy.CustomSkipPolicy;
+import cl.duoc.bank_batch.policy.DataQualityDecider;
 import org.springframework.core.task.AsyncTaskExecutor;
 
 @Configuration
 public class TransaccionJobConfig {
 
     @Bean
-    public FlatFileItemReader<Transaccion> transaccionReader() {
+    public SynchronizedItemStreamReader<Transaccion> transaccionReader() {
 
-        return new FlatFileItemReaderBuilder<Transaccion>()
+        FlatFileItemReader<Transaccion> delegate = new FlatFileItemReaderBuilder<Transaccion>()
                 .name("transaccionReader")
                 .resource(new ClassPathResource("data/transacciones.csv"))
                 .linesToSkip(1)
                 .delimited()
                 .names("id", "fecha", "monto", "tipo")
                 .targetType(Transaccion.class)
+                .build();
+
+        return new SynchronizedItemStreamReaderBuilder<Transaccion>()
+                .delegate(delegate)
                 .build();
     }
 
@@ -69,7 +77,7 @@ public class TransaccionJobConfig {
     public Step transaccionStep(
         JobRepository jobRepository,
         PlatformTransactionManager transactionManager,
-        FlatFileItemReader<Transaccion> transaccionReader,
+        SynchronizedItemStreamReader<Transaccion> transaccionReader,
         TransaccionProcessor transaccionProcessor,
         JdbcBatchItemWriter<Transaccion> transaccionWriter,
         CustomSkipPolicy customSkipPolicy,
@@ -82,6 +90,8 @@ public class TransaccionJobConfig {
             .processor(transaccionProcessor)
             .writer(transaccionWriter)
             .faultTolerant()
+            .retry(TransientDataAccessException.class)
+            .retryLimit(3)
             .skipPolicy(customSkipPolicy)
             .taskExecutor(taskExecutor)
             .build();
@@ -90,10 +100,14 @@ public class TransaccionJobConfig {
     @Bean
     public Job transaccionJob(
         JobRepository jobRepository,
-        Step transaccionStep) {
+        Step transaccionStep,
+        DataQualityDecider dataQualityDecider) {
 
         return new JobBuilder("transaccionJob", jobRepository)
             .start(transaccionStep)
+            .next(dataQualityDecider).on(DataQualityDecider.CALIDAD_INSUFICIENTE).fail()
+            .from(dataQualityDecider).on("*").end()
+            .end()
             .build();
     }
 }

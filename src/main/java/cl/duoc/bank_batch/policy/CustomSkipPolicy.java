@@ -24,6 +24,14 @@ public class CustomSkipPolicy implements SkipPolicy {
             return false;
         }
 
+        if (skipCount >= LIMITE_SKIPS) {
+            System.out.println(
+                    "Limite de skips superado (" + LIMITE_SKIPS + "). El Step debe fallar: "
+                    + t.getClass().getSimpleName() + " - " + t.getMessage()
+            );
+            throw new SkipLimitExceededException(LIMITE_SKIPS, t);
+        }
+
         System.out.println(
                 "Registro omitido (skip #" + (skipCount + 1) + "): "
                 + t.getClass().getSimpleName() + " - " + t.getMessage()
