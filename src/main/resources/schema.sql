@@ -45,3 +45,22 @@ CREATE TABLE IF NOT EXISTS resumen_anual (
     saldo_anual NUMERIC(15,2),
     total_anomalias INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS resumen_diario (
+    fecha DATE PRIMARY KEY,
+    total_transacciones INTEGER,
+    total_creditos NUMERIC(15,2),
+    total_debitos NUMERIC(15,2),
+    saldo_diario NUMERIC(15,2),
+    total_anomalias INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS retiros_cajero (
+    id BIGSERIAL PRIMARY KEY,
+    cuenta_id BIGINT NOT NULL,
+    monto NUMERIC(15,2) NOT NULL,
+    fecha TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    saldo_anterior NUMERIC(15,2) NOT NULL,
+    saldo_posterior NUMERIC(15,2) NOT NULL
+);
+
