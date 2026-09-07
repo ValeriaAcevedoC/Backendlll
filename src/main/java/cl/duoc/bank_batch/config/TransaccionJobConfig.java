@@ -10,6 +10,7 @@ import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.Step;
 import org.springframework.batch.core.step.builder.StepBuilder;
+import org.springframework.batch.core.step.tasklet.Tasklet;
 
 import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter;
 import org.springframework.batch.infrastructure.item.database.builder.JdbcBatchItemWriterBuilder;
@@ -27,6 +28,8 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.task.AsyncTaskExecutor;
 
 import org.springframework.dao.TransientDataAccessException;
+
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -107,7 +110,7 @@ public class TransaccionJobConfig {
     }
 
     // -------------------------------------------------
-    // STEP
+    // STEP TRANSACCIONES
     // -------------------------------------------------
 
     @Bean
@@ -148,6 +151,104 @@ public class TransaccionJobConfig {
     }
 
     // -------------------------------------------------
+    // STEP RESUMEN DIARIO
+    // -------------------------------------------------
+
+    @Bean
+    public Step resumenDiarioStep(
+            JobRepository jobRepository,
+            PlatformTransactionManager transactionManager,
+            DataSource dataSource) {
+
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+
+        Tasklet tasklet = (contribution, chunkContext) -> {
+
+            jdbcTemplate.update("""
+                INSERT INTO resumen_diario (
+                    fecha,
+                    total_transacciones,
+                    total_creditos,
+                    total_debitos,
+                    saldo_diario,
+                    total_anomalias
+                )
+                SELECT
+                    fecha,
+
+                    COUNT(*) FILTER (
+                        WHERE anomalia = false
+                    ),
+
+                    COALESCE(
+                        SUM(monto) FILTER (
+                            WHERE anomalia = false
+                            AND tipo = 'credito'
+                        ),
+                        0
+                    ),
+
+                    COALESCE(
+                        SUM(monto) FILTER (
+                            WHERE anomalia = false
+                            AND tipo = 'debito'
+                        ),
+                        0
+                    ),
+
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN anomalia = false
+                                    AND tipo = 'credito'
+                                    THEN monto
+
+                                WHEN anomalia = false
+                                    AND tipo = 'debito'
+                                    THEN -monto
+
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ),
+
+                    COUNT(*) FILTER (
+                        WHERE anomalia = true
+                    )
+
+                FROM transacciones_procesadas
+                WHERE fecha IS NOT NULL
+                GROUP BY fecha
+
+                ON CONFLICT (fecha)
+                DO UPDATE SET
+                    total_transacciones = EXCLUDED.total_transacciones,
+                    total_creditos = EXCLUDED.total_creditos,
+                    total_debitos = EXCLUDED.total_debitos,
+                    saldo_diario = EXCLUDED.saldo_diario,
+                    total_anomalias = EXCLUDED.total_anomalias
+                """);
+
+            System.out.println(
+                    "Resumen diario generado correctamente"
+            );
+
+            return null;
+        };
+
+        return new StepBuilder(
+                "resumenDiarioStep",
+                jobRepository
+        )
+                .tasklet(
+                        tasklet,
+                        transactionManager
+                )
+                .build();
+    }
+
+    // -------------------------------------------------
     // JOB
     // -------------------------------------------------
 
@@ -155,6 +256,7 @@ public class TransaccionJobConfig {
     public Job transaccionJob(
             JobRepository jobRepository,
             Step transaccionStep,
+            Step resumenDiarioStep,
             DataQualityDecider dataQualityDecider) {
 
         return new JobBuilder(
@@ -165,12 +267,15 @@ public class TransaccionJobConfig {
 
                 // Evalua la calidad de los datos procesados
                 .next(dataQualityDecider)
-                    .on(DataQualityDecider.CALIDAD_INSUFICIENTE)
+                    .on(
+                            DataQualityDecider
+                                    .CALIDAD_INSUFICIENTE
+                    )
                     .fail()
 
                 .from(dataQualityDecider)
                     .on("*")
-                    .end()
+                    .to(resumenDiarioStep)
 
                 .end()
                 .build();
