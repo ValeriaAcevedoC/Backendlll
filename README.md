@@ -1,242 +1,164 @@
 # Bank Batch
 
-Proyecto Java con Spring Boot, Spring Batch, Spring Web, Spring Security y PostgreSQL para procesar archivos bancarios en lote y exponer la informacion procesada mediante APIs BFF para tres canales: Web, Movil y Cajero.
+Proyecto Java/Spring Boot para procesamiento batch de datos bancarios con PostgreSQL y exposicion de APIs BFF protegidas con JWT para los canales Web, Movil y Cajero.
 
-## Objetivo
+## Descripcion
 
-El objetivo del sistema es procesar datos bancarios desde archivos CSV, validar su calidad, normalizar la informacion, persistir resultados en PostgreSQL y entregar vistas simplificadas para distintos canales consumidores mediante una estrategia BFF.
+La aplicacion procesa archivos CSV bancarios, valida y normaliza la informacion, guarda los resultados en PostgreSQL y expone datos consolidados mediante endpoints REST separados por canal.
 
-La aplicacion permite:
+El sistema incluye:
 
-- Procesar transacciones bancarias.
-- Calcular intereses de cuentas.
-- Procesar movimientos anuales.
-- Generar resumenes diarios y anuales.
-- Consultar informacion bancaria desde APIs REST protegidas.
-- Separar las respuestas segun el canal que consume la informacion: Web, Movil o Cajero.
-
-## Estrategia BFF elegida
-
-Se eligio una estrategia BFF, o Backend For Frontend, separada por canal. En lugar de exponer una unica API generica para todos los clientes, el proyecto define controladores especificos para cada experiencia:
-
-- `WebBffController`: entrega una vision mas completa para el canal web.
-- `MovilBffController`: entrega una respuesta mas liviana para aplicaciones moviles.
-- `CajeroBffController`: entrega operaciones puntuales para cajeros automaticos, como consulta de saldo y retiro.
-
-Esta estrategia permite adaptar cada respuesta a las necesidades reales de cada cliente. El canal web puede mostrar indicadores generales del procesamiento, el canal movil recibe menos datos para simplificar la respuesta, y el cajero se enfoca en operaciones transaccionales concretas.
-
-La separacion tambien permite aplicar seguridad por rol, evitando que un usuario de un canal consuma endpoints de otro canal.
+- Procesamiento batch de transacciones diarias.
+- Calculo de intereses de cuentas.
+- Procesamiento de movimientos anuales.
+- Generacion de resumenes diarios y anuales.
+- APIs BFF para Web, Movil y Cajero.
+- Autenticacion con JWT.
+- Autorizacion por rol de canal.
+- HTTPS local con keystore PKCS12.
 
 ## Tecnologias
 
 - Java 21
 - Spring Boot 4.1.0
 - Spring Batch
+- Spring JDBC
 - Spring Web
 - Spring Security
-- Spring JDBC
+- JJWT 0.12.6
 - PostgreSQL 16
-- Maven Wrapper
 - Docker Compose
+- Maven Wrapper
 
-## Estructura
+## Estructura principal
 
 ```text
 .
 |-- docker-compose.yml
 |-- pom.xml
-|-- mvnw
-|-- mvnw.cmd
 |-- README.md
-`-- src
-    |-- main
-    |   |-- java/cl/duoc/bank_batch
-    |   |   |-- BankBatchApplication.java
-    |   |   |-- bff
-    |   |   |   |-- cajero
-    |   |   |   |   |-- CajeroBffController.java
-    |   |   |   |   `-- CajeroService.java
-    |   |   |   |-- movil
-    |   |   |   |   `-- MovilBffController.java
-    |   |   |   `-- web
-    |   |   |       `-- WebBffController.java
-    |   |   |-- config
-    |   |   |   |-- BatchConfig.java
-    |   |   |   |-- EstadoCuentaJobConfig.java
-    |   |   |   |-- InteresJobConfig.java
-    |   |   |   |-- SecurityConfig.java
-    |   |   |   `-- TransaccionJobConfig.java
-    |   |   |-- model
-    |   |   |-- policy
-    |   |   `-- processor
-    |   `-- resources
-    |       |-- application.properties
-    |       |-- schema.sql
-    |       `-- data
-    |           |-- cuentas_anuales.csv
-    |           |-- intereses.csv
-    |           `-- transacciones.csv
-    `-- test
+|-- src
+|   |-- main
+|   |   |-- java/cl/duoc/bank_batch
+|   |   |   |-- BankBatchApplication.java
+|   |   |   |-- bff
+|   |   |   |   |-- cajero
+|   |   |   |   |-- movil
+|   |   |   |   `-- web
+|   |   |   |-- config
+|   |   |   |-- model
+|   |   |   |-- policy
+|   |   |   |-- processor
+|   |   |   `-- security
+|   |   `-- resources
+|   |       |-- application.properties
+|   |       |-- bank-batch.p12
+|   |       |-- schema.sql
+|   |       `-- data
+|   |           |-- cuentas_anuales.csv
+|   |           |-- intereses.csv
+|   |           `-- transacciones.csv
+|   `-- test
 ```
 
-## Componentes principales
+## Arquitectura BFF
 
-### Jobs batch
+El proyecto usa una arquitectura BFF, o Backend For Frontend, separada por canal. Cada canal tiene su propio controlador, servicio o logica de negocio asociada, y DTOs especificos para exponer solamente los datos que necesita ese consumidor.
 
-La aplicacion contiene tres jobs principales:
+Flujo actual por canal:
 
-- `transaccionJob`: procesa transacciones bancarias desde `transacciones.csv`.
-- `interesJob`: calcula intereses de cuentas desde `intereses.csv`.
-- `estadoCuentaJob`: procesa movimientos anuales desde `cuentas_anuales.csv`.
+```text
+Web    -> WebBffController    -> WebBffService   -> WebResumenDTO
+Movil  -> MovilBffController  -> MovilBffService -> MovilResumenDTO
+Cajero -> CajeroBffController -> CajeroService   -> SaldoCajeroDTO / RetiroResponseDTO
+```
 
-### Tablas principales
+### Mejora implementada: DTOs por canal
 
-El archivo `src/main/resources/schema.sql` crea las tablas necesarias:
+Como mejora aplicada a partir de la sugerencia docente de la entrega anterior, las respuestas de los BFF ahora usan DTOs especificos en vez de construir respuestas directamente con `Map<String, Object>`.
 
-- `transacciones_procesadas`
-- `resumen_diario`
-- `cuentas_intereses`
-- `movimientos_anuales`
-- `resumen_anual`
-- `retiros_cajero`
+DTOs implementados:
 
-### Procesamiento y calidad de datos
+- `WebResumenDTO`
+- `MovilResumenDTO`
+- `SaldoCajeroDTO`
+- `RetiroResponseDTO`
 
-Los jobs usan procesamiento por chunks de 5 registros, tolerancia a fallos, politica personalizada de skips y reintentos para errores transitorios de base de datos.
+Esta mejora deja explicito el contrato de datos de cada canal, facilita entender que campos devuelve cada endpoint y reduce el acoplamiento entre controladores y estructura de respuesta. Tambien mejora la modularidad, mantenibilidad y escalabilidad del proyecto, porque cada BFF puede evolucionar su respuesta sin afectar innecesariamente a los otros canales.
 
-La clase `DataQualityDecider` valida la calidad del procesamiento. Si mas del 10% de los registros evaluados fueron omitidos, el job falla con estado `CALIDAD_INSUFICIENTE`.
+## Jobs batch
 
-La clase `CustomSkipPolicy` permite omitir errores controlados, como:
+El proyecto define tres jobs:
+
+| Job | Archivo de entrada | Resultado principal |
+|---|---|---|
+| `transaccionJob` | `data/transacciones.csv` | `transacciones_procesadas` y `resumen_diario` |
+| `interesJob` | `data/intereses.csv` | `cuentas_intereses` |
+| `estadoCuentaJob` | `data/cuentas_anuales.csv` | `movimientos_anuales` y `resumen_anual` |
+
+Los steps trabajan con chunks de 5 registros, procesamiento multihilo, reintentos para errores transitorios de base de datos y una politica personalizada de skips.
+
+### Calidad de datos
+
+`CustomSkipPolicy` permite omitir errores controlados hasta un limite de 100 registros, entre ellos:
 
 - `FlatFileParseException`
 - `NumberFormatException`
 - `DateTimeParseException`
 - `IllegalArgumentException`
 
-### Mejora Semana 3: resumen diario
+`DataQualityDecider` valida el porcentaje de omisiones. Si supera el 10% de los registros evaluados, el job falla con estado `CALIDAD_INSUFICIENTE`.
 
-A partir del feedback docente de la entrega anterior, se agrego al flujo de `transaccionJob` la generacion del resumen diario mediante `resumenDiarioStep`.
+### Validaciones principales
 
-El flujo actual es:
+Transacciones:
 
-```text
-transaccionStep
-      |
-      v
-DataQualityDecider
-      |
-      +-- calidad insuficiente -> FAIL
-      |
-      +-- calidad correcta -> resumenDiarioStep
-                                  |
-                                  v
-                             resumen_diario
-```
+- Normaliza fechas en formatos `yyyy-MM-dd`, `dd-MM-yyyy`, `dd/MM/yyyy` y `yyyy/MM/dd`.
+- Valida montos nulos, negativos o iguales a cero.
+- Normaliza el tipo de transaccion.
+- Acepta `credito` y `debito`.
+- Marca anomalias en vez de descartar registros procesables.
 
-Durante las pruebas, el proceso termino correctamente, mostro el mensaje:
+Intereses:
 
-```text
-Resumen diario generado correctamente
-```
+- Valida nombre, saldo, edad y tipo de cuenta.
+- Acepta cuentas `ahorro` y `prestamo`.
+- Calcula 1% de interes para ahorro.
+- Calcula 2% de interes para prestamo.
+- Guarda tasa, interes calculado, saldo final, validez y observacion.
 
-Ademas, el job `transaccionJob` finalizo con estado `COMPLETED`.
+Movimientos anuales:
 
-## Web / Movil / Cajero
+- Normaliza fechas.
+- Valida monto, tipo de movimiento y descripcion.
+- Acepta `deposito`, `retiro` y `compra`.
+- Genera resumen anual por cuenta.
 
-### BFF Web
+## Base de datos
 
-Ruta base:
+PostgreSQL se levanta con `docker-compose.yml`:
 
-```text
-/api/bff/web
-```
+| Configuracion | Valor |
+|---|---|
+| Imagen | `postgres:16` |
+| Contenedor | `banco-postgres` |
+| Base de datos | `banco` |
+| Usuario | `postgres` |
+| Password | `postgres` |
+| Puerto local | `5433` |
 
-Endpoint disponible:
+El archivo `src/main/resources/schema.sql` crea estas tablas:
 
-```http
-GET /api/bff/web/resumen
-```
-
-Entrega un resumen general para el canal web:
-
-- Total de transacciones procesadas.
-- Total de resumenes diarios.
-- Total de cuentas con intereses.
-- Total de resumenes anuales.
-
-Este canal esta pensado para una vista administrativa o de escritorio, donde se requiere mas informacion consolidada.
-
-### BFF Movil
-
-Ruta base:
-
-```text
-/api/bff/movil
-```
-
-Endpoint disponible:
-
-```http
-GET /api/bff/movil/resumen
-```
-
-Entrega una respuesta mas simple:
-
-- Total de transacciones procesadas.
-- Total de resumenes diarios.
-
-Este canal esta pensado para clientes moviles, donde conviene entregar respuestas mas livianas y directas.
-
-### BFF Cajero
-
-Ruta base:
-
-```text
-/api/bff/cajero
-```
-
-Endpoints disponibles:
-
-```http
-GET /api/bff/cajero/saldo/{cuentaId}
-POST /api/bff/cajero/retiro/{cuentaId}
-```
-
-El cajero permite:
-
-- Consultar saldo disponible de una cuenta.
-- Realizar un retiro validando monto, existencia de cuenta y saldo suficiente.
-- Registrar el retiro en la tabla `retiros_cajero`.
-- Actualizar el `saldo_final` de la cuenta en `cuentas_intereses`.
-
-Este canal esta orientado a operaciones concretas y transaccionales.
-
-## Seguridad
-
-La seguridad esta configurada en `SecurityConfig` con Spring Security y autenticacion HTTP Basic.
-
-Cada canal tiene usuario y rol propio:
-
-| Canal | Usuario | Password | Rol |
-|---|---|---|---|
-| Web | `web` | `web123` | `WEB` |
-| Movil | `movil` | `movil123` | `MOVIL` |
-| Cajero | `cajero` | `cajero123` | `CAJERO` |
-
-Reglas de autorizacion:
-
-- `/api/bff/web/**` requiere rol `WEB`.
-- `/api/bff/movil/**` requiere rol `MOVIL`.
-- `/api/bff/cajero/**` requiere rol `CAJERO`.
-- Cualquier otra ruta requiere autenticacion.
-
-CSRF esta deshabilitado para facilitar el consumo de APIs REST desde herramientas como Postman o `curl`.
-
-Las credenciales estan definidas en memoria y son adecuadas para un entorno academico o de demostracion. En un entorno productivo deberian reemplazarse por usuarios persistidos, passwords cifradas y mecanismos como OAuth2/JWT.
+- `transacciones_procesadas`
+- `cuentas_intereses`
+- `movimientos_anuales`
+- `resumen_anual`
+- `resumen_diario`
+- `retiros_cajero`
 
 ## Configuracion
 
-La conexion a PostgreSQL esta definida en `src/main/resources/application.properties`:
+La aplicacion usa PostgreSQL local y arranca en HTTPS:
 
 ```properties
 spring.datasource.url=jdbc:postgresql://localhost:5433/banco
@@ -248,84 +170,182 @@ spring.sql.init.mode=always
 spring.sql.init.schema-locations=classpath:schema.sql
 
 spring.batch.jdbc.initialize-schema=never
+spring.batch.job.enabled=false
+
+server.port=8443
+server.ssl.enabled=true
+server.ssl.key-store=classpath:bank-batch.p12
+server.ssl.key-store-password=changeit
+server.ssl.key-store-type=PKCS12
+server.ssl.key-alias=bank-batch
 ```
 
-El archivo `docker-compose.yml` levanta PostgreSQL con:
+Importante: `spring.batch.job.enabled=false` evita que los jobs se ejecuten automaticamente al iniciar la aplicacion. Para ejecutar un job desde consola, se debe habilitar explicitamente en los argumentos.
 
-- Imagen: `postgres:16`
-- Contenedor: `banco-postgres`
-- Base de datos: `banco`
-- Usuario: `postgres`
-- Password: `postgres`
-- Puerto local: `5433`
-
-## Como ejecutar
-
-### 1. Requisitos
+## Requisitos
 
 - JDK 21
 - Docker Desktop o Docker Engine
 - PowerShell, CMD o terminal compatible
 
-### 2. Levantar PostgreSQL
+## Ejecucion
+
+### 1. Levantar PostgreSQL
 
 ```powershell
 docker compose up -d
 ```
 
-### 3. Compilar el proyecto
+### 2. Compilar
 
 ```powershell
 .\mvnw.cmd compile
 ```
 
-### 4. Ejecutar pruebas
+### 3. Ejecutar pruebas
 
 ```powershell
 .\mvnw.cmd test
 ```
 
-### 5. Ejecutar la aplicacion
+### 4. Ejecutar la aplicacion como API
 
 ```powershell
-.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.name=transaccionJob"
+.\mvnw.cmd spring-boot:run
 ```
 
-Se especifica `transaccionJob` porque el proyecto contiene varios Spring Batch Jobs registrados. Con esta ejecucion se procesan las transacciones y, si la calidad de datos es correcta, se genera el resumen diario.
-
-La aplicacion queda disponible en:
+La API queda disponible en:
 
 ```text
-http://localhost:8080
+https://localhost:8443
 ```
 
-### 6. Ejecutar un job especifico
+Como el certificado es local/autofirmado, en `curl` se usa `-k`.
+
+En PowerShell, para aceptar el certificado local en esta version del entorno, ejecutar primero:
+
+```powershell
+[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+```
+
+### 5. Ejecutar jobs batch
+
+Para ejecutar un job especifico:
+
+```powershell
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.enabled=true --spring.batch.job.name=transaccionJob"
+```
 
 Jobs disponibles:
 
-- `transaccionJob`
-- `interesJob`
-- `estadoCuentaJob`
-
-Para ejecutar otro proceso, se reemplaza el valor de `spring.batch.job.name` por el nombre del job requerido:
-
-```powershell
-.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.name=interesJob"
+```text
+transaccionJob
+interesJob
+estadoCuentaJob
 ```
 
-Para poblar la informacion usada por todos los BFF, se deben ejecutar los jobs necesarios segun los datos que se quieran consultar.
-
-## Como probar las APIs
-
-Antes de probar los endpoints, se debe tener PostgreSQL levantado y la aplicacion ejecutandose.
-
-### Probar BFF Web
+Ejemplos:
 
 ```powershell
-curl.exe -u web:web123 http://localhost:8080/api/bff/web/resumen
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.enabled=true --spring.batch.job.name=interesJob"
 ```
 
-Respuesta real:
+```powershell
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.enabled=true --spring.batch.job.name=estadoCuentaJob"
+```
+
+Para que las APIs BFF tengan datos completos, se recomienda ejecutar al menos:
+
+```powershell
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.enabled=true --spring.batch.job.name=transaccionJob"
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.enabled=true --spring.batch.job.name=interesJob"
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.enabled=true --spring.batch.job.name=estadoCuentaJob"
+```
+
+## Seguridad
+
+La seguridad esta implementada con Spring Security y JWT.
+
+Endpoint publico:
+
+```http
+POST /auth/login
+```
+
+Usuarios en memoria:
+
+| Canal | Usuario | Password | Rol |
+|---|---|---|---|
+| Web | `web` | `web123` | `ROLE_WEB` |
+| Movil | `movil` | `movil123` | `ROLE_MOVIL` |
+| Cajero | `cajero` | `cajero123` | `ROLE_CAJERO` |
+
+Reglas de autorizacion:
+
+- `/api/bff/web/**` requiere rol `WEB`.
+- `/api/bff/movil/**` requiere rol `MOVIL`.
+- `/api/bff/cajero/**` requiere rol `CAJERO`.
+- El resto de rutas requiere autenticacion.
+
+El token JWT dura 1 hora.
+
+### Obtener token
+
+Antes de usar `Invoke-RestMethod` contra HTTPS local, ejecutar una vez en la sesion de PowerShell:
+
+```powershell
+[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+```
+
+Web:
+
+```powershell
+$login = @{ usuario = "web"; password = "web123" } | ConvertTo-Json
+$tokenWeb = (Invoke-RestMethod -Uri "https://localhost:8443/auth/login" -Method POST -ContentType "application/json" -Body $login).token
+```
+
+Movil:
+
+```powershell
+$login = @{ usuario = "movil"; password = "movil123" } | ConvertTo-Json
+$tokenMovil = (Invoke-RestMethod -Uri "https://localhost:8443/auth/login" -Method POST -ContentType "application/json" -Body $login).token
+```
+
+Cajero:
+
+```powershell
+$login = @{ usuario = "cajero"; password = "cajero123" } | ConvertTo-Json
+$tokenCajero = (Invoke-RestMethod -Uri "https://localhost:8443/auth/login" -Method POST -ContentType "application/json" -Body $login).token
+```
+
+Respuesta del login:
+
+```json
+{
+  "usuario": "web",
+  "roles": ["ROLE_WEB"],
+  "token": "jwt-generado",
+  "tipo": "Bearer"
+}
+```
+
+## APIs BFF
+
+### BFF Web
+
+Ruta base:
+
+```text
+/api/bff/web
+```
+
+Endpoint:
+
+```http
+GET /api/bff/web/resumen
+```
+
+Devuelve un resumen general del procesamiento:
 
 ```json
 {
@@ -340,15 +360,35 @@ Respuesta real:
 }
 ```
 
-Estos valores corresponden a la ejecucion real de las pruebas.
-
-### Probar BFF Movil
+Prueba con PowerShell:
 
 ```powershell
-curl.exe -u movil:movil123 http://localhost:8080/api/bff/movil/resumen
+Invoke-RestMethod `
+  -Uri "https://localhost:8443/api/bff/web/resumen" `
+  -Headers @{ Authorization = "Bearer $tokenWeb" }
 ```
 
-Respuesta esperada:
+Prueba con curl:
+
+```powershell
+curl.exe -k -H "Authorization: Bearer $tokenWeb" https://localhost:8443/api/bff/web/resumen
+```
+
+### BFF Movil
+
+Ruta base:
+
+```text
+/api/bff/movil
+```
+
+Endpoint:
+
+```http
+GET /api/bff/movil/resumen
+```
+
+Devuelve una respuesta mas liviana:
 
 ```json
 {
@@ -358,53 +398,96 @@ Respuesta esperada:
 }
 ```
 
-### Probar consulta de saldo en Cajero
+Prueba:
 
 ```powershell
-curl.exe -u cajero:cajero123 http://localhost:8080/api/bff/cajero/saldo/104
+Invoke-RestMethod `
+  -Uri "https://localhost:8443/api/bff/movil/resumen" `
+  -Headers @{ Authorization = "Bearer $tokenMovil" }
 ```
 
-Respuesta esperada:
+### BFF Cajero
+
+Ruta base:
+
+```text
+/api/bff/cajero
+```
+
+Endpoints:
+
+```http
+GET /api/bff/cajero/saldo/{cuentaId}
+POST /api/bff/cajero/retiro/{cuentaId}
+```
+
+Consultar saldo:
+
+```powershell
+Invoke-RestMethod `
+  -Uri "https://localhost:8443/api/bff/cajero/saldo/101" `
+  -Headers @{ Authorization = "Bearer $tokenCajero" }
+```
+
+Respuesta de ejemplo:
 
 ```json
 {
   "canal": "cajero",
-  "cuentaId": 104,
-  "saldoDisponible": 7000.00
+  "cuentaId": 101,
+  "saldoDisponible": 7960.00
 }
 ```
 
-### Probar retiro en Cajero
+El valor de `saldoDisponible` puede cambiar si se realizan nuevos retiros sobre la misma cuenta.
+
+Realizar retiro:
 
 ```powershell
-$cred = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("cajero:cajero123"))
-$body = @{ monto = 1000 } | ConvertTo-Json
+$body = @{ monto = 100 } | ConvertTo-Json
 
 Invoke-RestMethod `
-  -Uri "http://localhost:8080/api/bff/cajero/retiro/104" `
+  -Uri "https://localhost:8443/api/bff/cajero/retiro/101" `
   -Method POST `
-  -Headers @{ Authorization = "Basic $cred" } `
+  -Headers @{ Authorization = "Bearer $tokenCajero" } `
   -ContentType "application/json" `
   -Body $body
 ```
 
-Respuesta esperada:
+Respuesta de ejemplo:
 
 ```json
 {
   "canal": "cajero",
-  "cuentaId": 104,
-  "montoRetirado": 1000,
-  "saldoAnterior": 7000.00,
-  "saldoDisponible": 6000.00
+  "cuentaId": 101,
+  "montoRetirado": 100,
+  "saldoAnterior": 8060.00,
+  "saldoDisponible": 7960.00
 }
 ```
 
-Este comando con `Invoke-RestMethod` fue el metodo probado exitosamente en PowerShell para enviar el cuerpo JSON del retiro.
+Los saldos del ejemplo dependen del estado actual de la base de datos y pueden variar si la prueba se repite.
 
-### Verificar persistencia del retiro
+El retiro:
 
-El retiro se puede comprobar directamente en PostgreSQL con:
+- Valida que el monto sea mayor a cero.
+- Consulta el saldo en `cuentas_intereses`.
+- Valida saldo suficiente.
+- Actualiza `saldo_final`.
+- Registra el movimiento en `retiros_cajero`.
+
+## Consultas utiles
+
+```sql
+SELECT * FROM transacciones_procesadas;
+SELECT * FROM resumen_diario;
+SELECT * FROM cuentas_intereses;
+SELECT * FROM movimientos_anuales;
+SELECT * FROM resumen_anual;
+SELECT * FROM retiros_cajero;
+```
+
+Ver ultimos retiros:
 
 ```sql
 SELECT
@@ -419,95 +502,54 @@ ORDER BY id DESC
 LIMIT 5;
 ```
 
-Registro real generado durante la prueba:
-
-| id | cuenta_id | monto | saldo_anterior | saldo_posterior |
-|---:|---:|---:|---:|---:|
-| 1 | 104 | 1000.00 | 7000.00 | 6000.00 |
-
-La fecha y hora del retiro quedaron registradas automaticamente en la columna `fecha`.
-
-### Probar seguridad y autorizacion
-
-Prueba sin credenciales:
+## Flujo recomendado de prueba
 
 ```powershell
-curl.exe -i http://localhost:8080/api/bff/web/resumen
+docker compose up -d
+.\mvnw.cmd test
+
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.enabled=true --spring.batch.job.name=transaccionJob"
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.enabled=true --spring.batch.job.name=interesJob"
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.enabled=true --spring.batch.job.name=estadoCuentaJob"
+
+.\mvnw.cmd spring-boot:run
 ```
 
-Resultado real:
+Luego iniciar sesion en `/auth/login` y consumir los endpoints usando:
 
 ```text
-HTTP 401 Unauthorized
+Authorization: Bearer <token>
 ```
 
-Prueba con usuario correcto Web:
+## Evidencias y pruebas realizadas
 
-```powershell
-curl.exe -i -u web:web123 http://localhost:8080/api/bff/web/resumen
-```
+Se validaron las siguientes evidencias sobre el estado actual del proyecto:
 
-Resultado real:
+- Compilacion Maven ejecutada con `.\mvnw.cmd compile`: resultado `BUILD SUCCESS`.
+- PostgreSQL 16 ejecutandose mediante Docker con el contenedor `banco-postgres`.
+- Base de datos publicada localmente en `localhost:5433`.
+- Aplicacion disponible por HTTPS en el puerto `8443`.
+- Login correcto mediante `POST /auth/login` y generacion de JWT Bearer.
+- BFF Web probado con usuario `web` y rol `ROLE_WEB`.
+- BFF Movil probado con usuario `movil` y rol `ROLE_MOVIL`.
+- BFF Cajero probado con usuario `cajero` y rol `ROLE_CAJERO`.
+- Consulta de saldo realizada sobre la cuenta `101`.
+- Retiro sobre cuenta `101` registrado previamente y persistido en PostgreSQL.
+- Acceso a BFF con rol incorrecto bloqueado con `403 Forbidden`.
+- Acceso sin token bloqueado por la configuracion de seguridad actual.
+
+Ultimos retiros observados en PostgreSQL durante la revision:
 
 ```text
-HTTP 200 OK
+id | cuenta_id | monto  | saldo_anterior | saldo_posterior
+---|-----------|--------|----------------|----------------
+3  | 101       | 100.00 | 8060.00        | 7960.00
+2  | 101       | 100.00 | 8160.00        | 8060.00
 ```
 
-### Probar autorizacion por canal
+Nota: en la validacion actual, una llamada sin token a un BFF protegido fue rechazada por seguridad. La respuesta observada para `/api/bff/web/resumen` sin token fue `403 Forbidden`.
 
-Si se intenta acceder a un endpoint con un usuario de otro canal, la aplicacion debe responder con error de autorizacion.
-
-Ejemplo:
-
-```powershell
-curl.exe -i -u cajero:cajero123 http://localhost:8080/api/bff/web/resumen
-```
-
-Resultado real:
-
-```text
-HTTP/1.1 403
-Forbidden
-```
-
-Esto demuestra que el usuario `cajero` esta autenticado, pero no tiene autorizacion para utilizar el BFF Web.
-
-Prueba con usuario Movil:
-
-```powershell
-curl.exe -i -u movil:movil123 http://localhost:8080/api/bff/movil/resumen
-```
-
-Resultado real:
-
-```text
-HTTP/1.1 200
-```
-
-Prueba con usuario Cajero:
-
-```powershell
-curl.exe -i -u cajero:cajero123 http://localhost:8080/api/bff/cajero/saldo/104
-```
-
-Resultado real:
-
-```text
-HTTP/1.1 200
-```
-
-## Consultas utiles en base de datos
-
-```sql
-SELECT * FROM transacciones_procesadas;
-SELECT * FROM resumen_diario;
-SELECT * FROM cuentas_intereses;
-SELECT * FROM movimientos_anuales;
-SELECT * FROM resumen_anual;
-SELECT * FROM retiros_cajero;
-```
-
-## Detener el entorno
+## Detener entorno
 
 Detener PostgreSQL:
 
@@ -515,21 +557,14 @@ Detener PostgreSQL:
 docker compose down
 ```
 
-Detener PostgreSQL y borrar el volumen:
+Detener PostgreSQL y eliminar el volumen:
 
 ```powershell
 docker compose down -v
 ```
 
-## Verificacion final
+## Notas
 
-Para validar el proyecto completo:
-
-```powershell
-docker compose up -d
-.\mvnw.cmd compile
-.\mvnw.cmd test
-.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.name=transaccionJob"
-```
-
-Luego se pueden probar las APIs con los comandos `curl.exe` indicados anteriormente.
+- El certificado HTTPS incluido es para ejecucion local.
+- Las credenciales estan en memoria y son adecuadas solo para demostracion o entorno academico.
+- Para produccion se deberian externalizar secretos, cifrar passwords, renovar la clave JWT y usar un mecanismo de identidad robusto.

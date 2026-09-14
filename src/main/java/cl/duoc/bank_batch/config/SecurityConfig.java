@@ -1,18 +1,30 @@
 package cl.duoc.bank_batch.config;
 
+import cl.duoc.bank_batch.security.JwtAuthenticationFilter;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import org.springframework.security.config.Customizer;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
 public class SecurityConfig {
+
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    public SecurityConfig(
+            JwtAuthenticationFilter jwtAuthenticationFilter) {
+
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+    }
 
     // -------------------------------------------------
     // USUARIOS Y ROLES POR CANAL
@@ -44,6 +56,18 @@ public class SecurityConfig {
     }
 
     // -------------------------------------------------
+    // AUTHENTICATION MANAGER
+    // -------------------------------------------------
+
+    @Bean
+    public AuthenticationManager authenticationManager(
+            AuthenticationConfiguration configuration)
+            throws Exception {
+
+        return configuration.getAuthenticationManager();
+    }
+
+    // -------------------------------------------------
     // REGLAS DE SEGURIDAD
     // -------------------------------------------------
 
@@ -55,6 +79,9 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
 
                 .authorizeHttpRequests(auth -> auth
+
+                        .requestMatchers("/auth/login")
+                        .permitAll()
 
                         .requestMatchers("/api/bff/web/**")
                         .hasRole("WEB")
@@ -69,7 +96,12 @@ public class SecurityConfig {
                         .authenticated()
                 )
 
-                .httpBasic(Customizer.withDefaults());
+
+                // JWT se procesa antes de la autenticación estándar.
+                .addFilterBefore(
+                        jwtAuthenticationFilter,
+                        UsernamePasswordAuthenticationFilter.class
+                );
 
         return http.build();
     }

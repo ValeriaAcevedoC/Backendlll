@@ -1,15 +1,17 @@
 package cl.duoc.bank_batch.bff.cajero;
 
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestController
@@ -32,33 +34,32 @@ public class CajeroBffController {
     // -------------------------------------------------
 
     @GetMapping("/saldo/{cuentaId}")
-    public Map<String, Object> consultarSaldo(
+    public SaldoCajeroDTO consultarSaldo(
             @PathVariable Long cuentaId) {
 
-        Map<String, Object> cuenta = jdbcTemplate.queryForMap(
-                """
-                SELECT
-                    cuenta_id,
-                    saldo_final
-                FROM cuentas_intereses
-                WHERE cuenta_id = ?
-                """,
-                cuentaId
-        );
+        try {
+            Map<String, Object> cuenta = jdbcTemplate.queryForMap(
+                    """
+                    SELECT
+                        cuenta_id,
+                        saldo_final
+                    FROM cuentas_intereses
+                    WHERE cuenta_id = ?
+                    """,
+                    cuentaId
+            );
 
-        Map<String, Object> respuesta = new LinkedHashMap<>();
+            return new SaldoCajeroDTO(
+                    "cajero",
+                    ((Number) cuenta.get("cuenta_id")).longValue(),
+                    (BigDecimal) cuenta.get("saldo_final")
+            );
 
-        respuesta.put("canal", "cajero");
-        respuesta.put(
-                "cuentaId",
-                cuenta.get("cuenta_id")
-        );
-        respuesta.put(
-                "saldoDisponible",
-                cuenta.get("saldo_final")
-        );
-
-        return respuesta;
+        } catch (EmptyResultDataAccessException e) {
+            throw new CuentaNoEncontradaException(
+                    "La cuenta " + cuentaId + " no existe"
+            );
+        }
     }
 
     // -------------------------------------------------
@@ -66,7 +67,7 @@ public class CajeroBffController {
     // -------------------------------------------------
 
     @PostMapping("/retiro/{cuentaId}")
-    public Map<String, Object> realizarRetiro(
+    public RetiroResponseDTO realizarRetiro(
             @PathVariable Long cuentaId,
             @RequestBody Map<String, BigDecimal> solicitud) {
 
@@ -76,5 +77,18 @@ public class CajeroBffController {
                 cuentaId,
                 monto
         );
+    }
+
+    // -------------------------------------------------
+    // EXCEPCION CUENTA NO ENCONTRADA
+    // -------------------------------------------------
+
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    private static class CuentaNoEncontradaException
+            extends RuntimeException {
+
+        public CuentaNoEncontradaException(String mensaje) {
+            super(mensaje);
+        }
     }
 }

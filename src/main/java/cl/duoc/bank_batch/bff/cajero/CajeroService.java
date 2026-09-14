@@ -5,8 +5,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 @Service
 public class CajeroService {
@@ -18,7 +16,7 @@ public class CajeroService {
     }
 
     @Transactional
-    public Map<String, Object> realizarRetiro(
+    public RetiroResponseDTO realizarRetiro(
             Long cuentaId,
             BigDecimal monto) {
 
@@ -79,15 +77,12 @@ public class CajeroService {
                 saldoPosterior
         );
 
-        Map<String, Object> respuesta =
-                new LinkedHashMap<>();
-
-        respuesta.put("canal", "cajero");
-        respuesta.put("cuentaId", cuentaId);
-        respuesta.put("montoRetirado", monto);
-        respuesta.put("saldoAnterior", saldoActual);
-        respuesta.put("saldoDisponible", saldoPosterior);
-
-        return respuesta;
+        return new RetiroResponseDTO(
+                "cajero",
+                cuentaId,
+                monto,
+                saldoActual,
+                saldoPosterior
+        );
     }
 }
