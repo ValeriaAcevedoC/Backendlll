@@ -1,6 +1,120 @@
-# Bank Batch
+# Backend III - Exp3_S6: Microservicios y Seguridad en la Nube con Spring Cloud
 
-Proyecto Java/Spring Boot para procesamiento batch de datos bancarios con PostgreSQL y exposicion de APIs BFF protegidas con JWT para los canales Web, Movil y Cajero.
+Proyecto grupal (Backend III, PBY2203) que evoluciona el sistema bancario `bank-batch` hacia una arquitectura de microservicios usando Spring Cloud. Se agregan configuracion centralizada, service discovery, tolerancia a fallos y microservicios adicionales, manteniendo el procesamiento batch y las APIs BFF ya desarrolladas en entregas anteriores.
+
+## Arquitectura general
+
+| Componente | Puerto | Rol |
+|---|---|---|
+| `config-server` | 8888 | Servidor de configuracion centralizada (modo native) |
+| `eureka-server` | 8761 | Service Discovery |
+| `bank-batch` | 8443 (HTTPS) | Microservicio principal: batch bancario + BFFs + JWT |
+| `clientes-service` | 8091 | Microservicio de clientes, seguridad Basic Auth |
+| `cuentas-service` | 8092 | Microservicio de cuentas, seguridad Basic Auth |
+
+Todos los microservicios (`bank-batch`, `clientes-service`, `cuentas-service`) se registran en `eureka-server` y consumen configuracion desde `config-server`.
+
+## Estructura del repositorio
+
+```text
+.
+|-- bank-batch/
+|-- config-server/
+|-- eureka-server/
+|-- clientes-service/
+|-- cuentas-service/
+`-- README.md
+```
+
+## Tecnologias generales
+
+- Java 21
+- Spring Boot 4.1.0
+- Spring Cloud 2025.1.2 (Config Server, Eureka, Resilience4j)
+- Spring Security
+- PostgreSQL 16 (Docker Compose)
+- Maven Wrapper
+
+## Orden de arranque
+
+```powershell
+# 1. Base de datos
+docker compose up -d      # (dentro de bank-batch/)
+
+# 2. Config Server
+cd config-server
+.\mvnw.cmd spring-boot:run
+
+# 3. Eureka Server
+cd eureka-server
+.\mvnw.cmd spring-boot:run
+
+# 4. bank-batch
+cd bank-batch
+.\mvnw.cmd spring-boot:run
+
+# 5. clientes-service
+cd clientes-service
+.\mvnw.cmd spring-boot:run
+
+# 6. cuentas-service
+cd cuentas-service
+.\mvnw.cmd spring-boot:run
+```
+
+Verificacion: `http://localhost:8761` debe mostrar los tres microservicios (`BANK-BATCH`, `CLIENTES-SERVICE`, `CUENTAS-SERVICE`) con estado `UP`.
+
+---
+
+# Microservicio: Config Server
+
+Servidor de configuracion centralizada en modo `native`, que sirve archivos de configuracion locales a los microservicios que lo consumen.
+
+## Configuracion
+
+```properties
+server.port=8888
+spring.application.name=config-server
+spring.profiles.active=native
+spring.cloud.config.server.native.search-locations=classpath:/config
+```
+
+## Prueba
+
+```text
+GET http://localhost:8888/bank-batch/default
+```
+
+Devuelve un JSON con la configuracion centralizada disponible para `bank-batch`.
+
+---
+
+# Microservicio: Eureka Server
+
+Servidor de Service Discovery. Los demas microservicios se registran aqui para poder ser localizados por nombre logico en vez de IP/puerto fijo.
+
+## Configuracion
+
+```properties
+server.port=8761
+spring.application.name=eureka-server
+eureka.client.register-with-eureka=false
+eureka.client.fetch-registry=false
+```
+
+## Panel de administracion
+
+```text
+http://localhost:8761
+```
+
+Muestra todas las instancias registradas con su estado (`UP`/`DOWN`).
+
+---
+
+# Microservicio: Bank Batch
+
+Proyecto Java/Spring Boot para procesamiento batch de datos bancarios con PostgreSQL y exposicion de APIs BFF protegidas con JWT para los canales Web, Movil y Cajero. Ahora tambien consume Config Server, se registra en Eureka e implementa tolerancia a fallos con Resilience4j.
 
 ## Descripcion
 
@@ -16,11 +130,15 @@ El sistema incluye:
 - Autenticacion con JWT.
 - Autorizacion por rol de canal.
 - HTTPS local con keystore PKCS12.
+- Configuracion centralizada via Config Server.
+- Registro en Eureka Service Discovery.
+- Tolerancia a fallos con Resilience4j (Circuit Breaker).
 
 ## Tecnologias
 
 - Java 21
 - Spring Boot 4.1.0
+- Spring Cloud 2025.1.2 (Config Client, Eureka Client, Resilience4j)
 - Spring Batch
 - Spring JDBC
 - Spring Web
@@ -33,10 +151,9 @@ El sistema incluye:
 ## Estructura principal
 
 ```text
-.
+bank-batch/
 |-- docker-compose.yml
 |-- pom.xml
-|-- README.md
 |-- src
 |   |-- main
 |   |   |-- java/cl/duoc/bank_batch
@@ -158,8 +275,6 @@ El archivo `src/main/resources/schema.sql` crea estas tablas:
 
 ## Configuracion
 
-La aplicacion usa PostgreSQL local y arranca en HTTPS:
-
 ```properties
 spring.datasource.url=jdbc:postgresql://localhost:5433/banco
 spring.datasource.username=postgres
@@ -178,6 +293,11 @@ server.ssl.key-store=classpath:bank-batch.p12
 server.ssl.key-store-password=changeit
 server.ssl.key-store-type=PKCS12
 server.ssl.key-alias=bank-batch
+
+# Spring Cloud
+spring.config.import=optional:configserver:http://localhost:8888
+eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
+eureka.instance.prefer-ip-address=true
 ```
 
 Importante: `spring.batch.job.enabled=false` evita que los jobs se ejecuten automaticamente al iniciar la aplicacion. Para ejecutar un job desde consola, se debe habilitar explicitamente en los argumentos.
@@ -187,6 +307,7 @@ Importante: `spring.batch.job.enabled=false` evita que los jobs se ejecuten auto
 - JDK 21
 - Docker Desktop o Docker Engine
 - PowerShell, CMD o terminal compatible
+- `config-server` y `eureka-server` corriendo previamente
 
 ## Ejecucion
 
@@ -244,16 +365,6 @@ interesJob
 estadoCuentaJob
 ```
 
-Ejemplos:
-
-```powershell
-.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.enabled=true --spring.batch.job.name=interesJob"
-```
-
-```powershell
-.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.enabled=true --spring.batch.job.name=estadoCuentaJob"
-```
-
 Para que las APIs BFF tengan datos completos, se recomienda ejecutar al menos:
 
 ```powershell
@@ -291,31 +402,11 @@ El token JWT dura 1 hora.
 
 ### Obtener token
 
-Antes de usar `Invoke-RestMethod` contra HTTPS local, ejecutar una vez en la sesion de PowerShell:
-
 ```powershell
 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
-```
 
-Web:
-
-```powershell
 $login = @{ usuario = "web"; password = "web123" } | ConvertTo-Json
 $tokenWeb = (Invoke-RestMethod -Uri "https://localhost:8443/auth/login" -Method POST -ContentType "application/json" -Body $login).token
-```
-
-Movil:
-
-```powershell
-$login = @{ usuario = "movil"; password = "movil123" } | ConvertTo-Json
-$tokenMovil = (Invoke-RestMethod -Uri "https://localhost:8443/auth/login" -Method POST -ContentType "application/json" -Body $login).token
-```
-
-Cajero:
-
-```powershell
-$login = @{ usuario = "cajero"; password = "cajero123" } | ConvertTo-Json
-$tokenCajero = (Invoke-RestMethod -Uri "https://localhost:8443/auth/login" -Method POST -ContentType "application/json" -Body $login).token
 ```
 
 Respuesta del login:
@@ -333,19 +424,9 @@ Respuesta del login:
 
 ### BFF Web
 
-Ruta base:
-
-```text
-/api/bff/web
-```
-
-Endpoint:
-
 ```http
 GET /api/bff/web/resumen
 ```
-
-Devuelve un resumen general del procesamiento:
 
 ```json
 {
@@ -360,35 +441,11 @@ Devuelve un resumen general del procesamiento:
 }
 ```
 
-Prueba con PowerShell:
-
-```powershell
-Invoke-RestMethod `
-  -Uri "https://localhost:8443/api/bff/web/resumen" `
-  -Headers @{ Authorization = "Bearer $tokenWeb" }
-```
-
-Prueba con curl:
-
-```powershell
-curl.exe -k -H "Authorization: Bearer $tokenWeb" https://localhost:8443/api/bff/web/resumen
-```
-
 ### BFF Movil
-
-Ruta base:
-
-```text
-/api/bff/movil
-```
-
-Endpoint:
 
 ```http
 GET /api/bff/movil/resumen
 ```
-
-Devuelve una respuesta mas liviana:
 
 ```json
 {
@@ -398,23 +455,7 @@ Devuelve una respuesta mas liviana:
 }
 ```
 
-Prueba:
-
-```powershell
-Invoke-RestMethod `
-  -Uri "https://localhost:8443/api/bff/movil/resumen" `
-  -Headers @{ Authorization = "Bearer $tokenMovil" }
-```
-
 ### BFF Cajero
-
-Ruta base:
-
-```text
-/api/bff/cajero
-```
-
-Endpoints:
 
 ```http
 GET /api/bff/cajero/saldo/{cuentaId}
@@ -422,14 +463,6 @@ POST /api/bff/cajero/retiro/{cuentaId}
 ```
 
 Consultar saldo:
-
-```powershell
-Invoke-RestMethod `
-  -Uri "https://localhost:8443/api/bff/cajero/saldo/101" `
-  -Headers @{ Authorization = "Bearer $tokenCajero" }
-```
-
-Respuesta de ejemplo:
 
 ```json
 {
@@ -439,22 +472,7 @@ Respuesta de ejemplo:
 }
 ```
 
-El valor de `saldoDisponible` puede cambiar si se realizan nuevos retiros sobre la misma cuenta.
-
 Realizar retiro:
-
-```powershell
-$body = @{ monto = 100 } | ConvertTo-Json
-
-Invoke-RestMethod `
-  -Uri "https://localhost:8443/api/bff/cajero/retiro/101" `
-  -Method POST `
-  -Headers @{ Authorization = "Bearer $tokenCajero" } `
-  -ContentType "application/json" `
-  -Body $body
-```
-
-Respuesta de ejemplo:
 
 ```json
 {
@@ -465,16 +483,6 @@ Respuesta de ejemplo:
   "saldoDisponible": 7960.00
 }
 ```
-
-Los saldos del ejemplo dependen del estado actual de la base de datos y pueden variar si la prueba se repite.
-
-El retiro:
-
-- Valida que el monto sea mayor a cero.
-- Consulta el saldo en `cuentas_intereses`.
-- Valida saldo suficiente.
-- Actualiza `saldo_final`.
-- Registra el movimiento en `retiros_cajero`.
 
 ## Consultas utiles
 
@@ -487,67 +495,109 @@ SELECT * FROM resumen_anual;
 SELECT * FROM retiros_cajero;
 ```
 
-Ver ultimos retiros:
+---
 
-```sql
-SELECT
-    id,
-    cuenta_id,
-    monto,
-    fecha,
-    saldo_anterior,
-    saldo_posterior
-FROM retiros_cajero
-ORDER BY id DESC
-LIMIT 5;
+# Microservicio: Clientes Service
+
+Microservicio que expone datos de clientes migrados, registrado en Eureka y protegido con Basic Auth.
+
+## Tecnologias
+
+- Java 21
+- Spring Boot 4.1.0
+- Spring Cloud 2025.1.2 (Config Client, Eureka Client)
+- Spring Web
+- Spring Security (Basic Auth)
+
+## Configuracion
+
+```properties
+server.port=8091
+spring.application.name=clientes-service
+spring.config.import=optional:configserver:http://localhost:8888
+eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
+eureka.instance.prefer-ip-address=true
+
+app.security.user=admin
+app.security.password=admin123
 ```
 
-## Flujo recomendado de prueba
+## Endpoints
+
+```http
+GET /api/clientes
+GET /api/clientes/{id}
+```
+
+Requieren autenticacion Basic Auth (`admin` / `admin123`).
+
+## Ejecucion
 
 ```powershell
-docker compose up -d
-.\mvnw.cmd test
-
-.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.enabled=true --spring.batch.job.name=transaccionJob"
-.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.enabled=true --spring.batch.job.name=interesJob"
-.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.batch.job.enabled=true --spring.batch.job.name=estadoCuentaJob"
-
 .\mvnw.cmd spring-boot:run
 ```
 
-Luego iniciar sesion en `/auth/login` y consumir los endpoints usando:
+## Prueba
 
 ```text
-Authorization: Bearer <token>
+GET http://localhost:8091/api/clientes
 ```
 
-## Evidencias y pruebas realizadas
+- Sin credenciales: `401 Unauthorized`
+- Con Basic Auth: `200 OK` con la lista de clientes
 
-Se validaron las siguientes evidencias sobre el estado actual del proyecto:
+---
 
-- Compilacion Maven ejecutada con `.\mvnw.cmd compile`: resultado `BUILD SUCCESS`.
-- PostgreSQL 16 ejecutandose mediante Docker con el contenedor `banco-postgres`.
-- Base de datos publicada localmente en `localhost:5433`.
-- Aplicacion disponible por HTTPS en el puerto `8443`.
-- Login correcto mediante `POST /auth/login` y generacion de JWT Bearer.
-- BFF Web probado con usuario `web` y rol `ROLE_WEB`.
-- BFF Movil probado con usuario `movil` y rol `ROLE_MOVIL`.
-- BFF Cajero probado con usuario `cajero` y rol `ROLE_CAJERO`.
-- Consulta de saldo realizada sobre la cuenta `101`.
-- Retiro sobre cuenta `101` registrado previamente y persistido en PostgreSQL.
-- Acceso a BFF con rol incorrecto bloqueado con `403 Forbidden`.
-- Acceso sin token bloqueado por la configuracion de seguridad actual.
+# Microservicio: Cuentas Service
 
-Ultimos retiros observados en PostgreSQL durante la revision:
+Microservicio que expone datos de cuentas migradas, registrado en Eureka y protegido con Basic Auth.
+
+## Tecnologias
+
+- Java 21
+- Spring Boot 4.1.0
+- Spring Cloud 2025.1.2 (Config Client, Eureka Client)
+- Spring Web
+- Spring Security (Basic Auth)
+
+## Configuracion
+
+```properties
+server.port=8092
+spring.application.name=cuentas-service
+spring.config.import=optional:configserver:http://localhost:8888
+eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
+eureka.instance.prefer-ip-address=true
+
+app.security.user=admin
+app.security.password=admin123
+```
+
+## Endpoints
+
+```http
+GET /api/cuentas
+GET /api/cuentas/{id}
+```
+
+Requieren autenticacion Basic Auth (`admin` / `admin123`).
+
+## Ejecucion
+
+```powershell
+.\mvnw.cmd spring-boot:run
+```
+
+## Prueba
 
 ```text
-id | cuenta_id | monto  | saldo_anterior | saldo_posterior
----|-----------|--------|----------------|----------------
-3  | 101       | 100.00 | 8060.00        | 7960.00
-2  | 101       | 100.00 | 8160.00        | 8060.00
+GET http://localhost:8092/api/cuentas
 ```
 
-Nota: en la validacion actual, una llamada sin token a un BFF protegido fue rechazada por seguridad. La respuesta observada para `/api/bff/web/resumen` sin token fue `403 Forbidden`.
+- Sin credenciales: `401 Unauthorized`
+- Con Basic Auth: `200 OK` con la lista de cuentas
+
+---
 
 ## Detener entorno
 
@@ -565,6 +615,6 @@ docker compose down -v
 
 ## Notas
 
-- El certificado HTTPS incluido es para ejecucion local.
+- El certificado HTTPS incluido en `bank-batch` es para ejecucion local.
 - Las credenciales estan en memoria y son adecuadas solo para demostracion o entorno academico.
 - Para produccion se deberian externalizar secretos, cifrar passwords, renovar la clave JWT y usar un mecanismo de identidad robusto.
