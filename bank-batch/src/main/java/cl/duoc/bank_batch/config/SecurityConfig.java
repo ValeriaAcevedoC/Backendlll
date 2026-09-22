@@ -80,7 +80,7 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(auth -> auth
 
-                        .requestMatchers("/auth/login")
+                        .requestMatchers("/auth/login", "/api/debug/**")
                         .permitAll()
 
                         .requestMatchers("/api/bff/web/**")

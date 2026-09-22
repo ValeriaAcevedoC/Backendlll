@@ -8,11 +8,15 @@ Proyecto grupal (Backend III, PBY2203) que evoluciona el sistema bancario `bank-
 |---|---|---|
 | `config-server` | 8888 | Servidor de configuracion centralizada (modo native) |
 | `eureka-server` | 8761 | Service Discovery |
-| `bank-batch` | 8443 (HTTPS) | Microservicio principal: batch bancario + BFFs + JWT |
+| `bank-batch` | 8443 (HTTPS) | Microservicio principal: batch bancario + BFFs + JWT + Circuit Breaker |
 | `clientes-service` | 8091 | Microservicio de clientes, seguridad Basic Auth |
 | `cuentas-service` | 8092 | Microservicio de cuentas, seguridad Basic Auth |
 
 Todos los microservicios (`bank-batch`, `clientes-service`, `cuentas-service`) se registran en `eureka-server` y consumen configuracion desde `config-server`.
+
+### Nota de diseño: Tolerancia a fallos
+
+El Circuit Breaker (Resilience4j) se implementa desde `bank-batch`, actuando como consumidor de `clientes-service`. Esta decision sigue el patron estandar de microservicios: el mecanismo de tolerancia a fallos se ubica en quien realiza la llamada remota, no en el servicio que solo expone datos. Por restriccion de tiempo, no se replico el mismo patron para `cuentas-service`, pero la implementacion es identica y facilmente escalable a otros consumidores.
 
 ## Estructura del repositorio
 
@@ -132,7 +136,7 @@ El sistema incluye:
 - HTTPS local con keystore PKCS12.
 - Configuracion centralizada via Config Server.
 - Registro en Eureka Service Discovery.
-- Tolerancia a fallos con Resilience4j (Circuit Breaker).
+- Tolerancia a fallos con Resilience4j (Circuit Breaker + Fallback) al consumir `clientes-service`.
 
 ## Tecnologias
 
@@ -162,6 +166,7 @@ bank-batch/
 |   |   |   |   |-- cajero
 |   |   |   |   |-- movil
 |   |   |   |   `-- web
+|   |   |   |-- client
 |   |   |   |-- config
 |   |   |   |-- model
 |   |   |   |-- policy
@@ -298,6 +303,12 @@ server.ssl.key-alias=bank-batch
 spring.config.import=optional:configserver:http://localhost:8888
 eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
 eureka.instance.prefer-ip-address=true
+
+# Resilience4j - Circuit Breaker hacia clientes-service
+resilience4j.circuitbreaker.instances.clientesService.sliding-window-size=5
+resilience4j.circuitbreaker.instances.clientesService.minimum-number-of-calls=3
+resilience4j.circuitbreaker.instances.clientesService.failure-rate-threshold=50
+resilience4j.circuitbreaker.instances.clientesService.wait-duration-in-open-state=5000
 ```
 
 Importante: `spring.batch.job.enabled=false` evita que los jobs se ejecuten automaticamente al iniciar la aplicacion. Para ejecutar un job desde consola, se debe habilitar explicitamente en los argumentos.
@@ -307,7 +318,7 @@ Importante: `spring.batch.job.enabled=false` evita que los jobs se ejecuten auto
 - JDK 21
 - Docker Desktop o Docker Engine
 - PowerShell, CMD o terminal compatible
-- `config-server` y `eureka-server` corriendo previamente
+- `config-server`, `eureka-server` y `clientes-service` corriendo previamente
 
 ## Ejecucion
 
@@ -484,6 +495,19 @@ Realizar retiro:
 }
 ```
 
+## Tolerancia a fallos
+
+`ClientesClient` implementa un Circuit Breaker (Resilience4j) sobre las llamadas hacia `clientes-service`. Si el servicio no responde o falla repetidamente, el circuito se abre y las siguientes peticiones reciben una respuesta de fallback en lugar de un error 500.
+
+```http
+GET /api/debug/clientes
+```
+
+Comportamiento esperado:
+
+- Con `clientes-service` activo: devuelve la lista de clientes obtenida en tiempo real.
+- Con `clientes-service` caido (tras varias solicitudes fallidas): devuelve el mensaje de fallback `"clientes-service no disponible temporalmente"`.
+
 ## Consultas utiles
 
 ```sql
@@ -499,7 +523,7 @@ SELECT * FROM retiros_cajero;
 
 # Microservicio: Clientes Service
 
-Microservicio que expone datos de clientes migrados, registrado en Eureka y protegido con Basic Auth.
+Microservicio que expone datos de clientes migrados, registrado en Eureka y protegido con Basic Auth. Es consumido por `bank-batch` a traves de un Circuit Breaker con Fallback.
 
 ## Tecnologias
 
