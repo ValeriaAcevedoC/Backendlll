@@ -1,75 +1,27 @@
 package cl.duoc.bank_batch.config;
 
-import cl.duoc.bank_batch.security.JwtAuthenticationFilter;
-
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.core.convert.converter.Converter;
+
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.provisioning.InMemoryUserDetailsManager;
+
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 
 @Configuration
 public class SecurityConfig {
-
-    private final JwtAuthenticationFilter jwtAuthenticationFilter;
-
-    public SecurityConfig(
-            JwtAuthenticationFilter jwtAuthenticationFilter) {
-
-        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
-    }
-
-    // -------------------------------------------------
-    // USUARIOS Y ROLES POR CANAL
-    // -------------------------------------------------
-
-    @Bean
-    public UserDetailsService userDetailsService() {
-
-        UserDetails usuarioWeb = User.withUsername("web")
-                .password("{noop}web123")
-                .roles("WEB")
-                .build();
-
-        UserDetails usuarioMovil = User.withUsername("movil")
-                .password("{noop}movil123")
-                .roles("MOVIL")
-                .build();
-
-        UserDetails usuarioCajero = User.withUsername("cajero")
-                .password("{noop}cajero123")
-                .roles("CAJERO")
-                .build();
-
-        return new InMemoryUserDetailsManager(
-                usuarioWeb,
-                usuarioMovil,
-                usuarioCajero
-        );
-    }
-
-    // -------------------------------------------------
-    // AUTHENTICATION MANAGER
-    // -------------------------------------------------
-
-    @Bean
-    public AuthenticationManager authenticationManager(
-            AuthenticationConfiguration configuration)
-            throws Exception {
-
-        return configuration.getAuthenticationManager();
-    }
-
-    // -------------------------------------------------
-    // REGLAS DE SEGURIDAD
-    // -------------------------------------------------
 
     @Bean
     public SecurityFilterChain securityFilterChain(
@@ -80,11 +32,11 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(auth -> auth
 
-                        // RUTAS PUBLICAS
+                        // Solo el endpoint de salud es publico. Las rutas de
+                        // negocio y diagnostico requieren un token OAuth2.
                         .requestMatchers(
-                                "/auth/login",
-                                "/api/debug/**",
-                                "/api/kafka/**"
+                                "/actuator/health",
+                                "/actuator/health/**"
                         )
                         .permitAll()
 
@@ -105,12 +57,62 @@ public class SecurityConfig {
                         .authenticated()
                 )
 
-                // JWT SE PROCESA ANTES DE LA AUTENTICACION ESTANDAR
-                .addFilterBefore(
-                        jwtAuthenticationFilter,
-                        UsernamePasswordAuthenticationFilter.class
+                .oauth2ResourceServer(oauth2 ->
+                        oauth2.jwt(jwt ->
+                                jwt.jwtAuthenticationConverter(
+                                        jwtAuthenticationConverter()
+                                )
+                        )
                 );
 
         return http.build();
+    }
+
+    @Bean
+    public JwtAuthenticationConverter jwtAuthenticationConverter() {
+
+        JwtAuthenticationConverter converter =
+                new JwtAuthenticationConverter();
+
+        converter.setJwtGrantedAuthoritiesConverter(
+                keycloakRealmRoleConverter()
+        );
+
+        return converter;
+    }
+
+    private Converter<Jwt, Collection<GrantedAuthority>>
+    keycloakRealmRoleConverter() {
+
+        return jwt -> {
+
+            Collection<GrantedAuthority> authorities =
+                    new ArrayList<>();
+
+            Map<String, Object> realmAccess =
+                    jwt.getClaim("realm_access");
+
+            if (realmAccess == null) {
+                return authorities;
+            }
+
+            Object rolesObject =
+                    realmAccess.get("roles");
+
+            if (!(rolesObject instanceof List<?> roles)) {
+                return authorities;
+            }
+
+            for (Object role : roles) {
+
+                authorities.add(
+                        new SimpleGrantedAuthority(
+                                "ROLE_" + role.toString()
+                        )
+                );
+            }
+
+            return authorities;
+        };
     }
 }

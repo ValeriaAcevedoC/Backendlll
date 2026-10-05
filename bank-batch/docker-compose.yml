@@ -3,13 +3,18 @@ services:
     image: postgres:16
     container_name: banco-postgres
     environment:
-      POSTGRES_DB: banco
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5433:5432"
     volumes:
       - banco_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   kafka:
     image: bitnamilegacy/kafka:4.0.0-debian-12-r10
@@ -19,16 +24,160 @@ services:
     environment:
       KAFKA_CFG_NODE_ID: 1
       KAFKA_CFG_PROCESS_ROLES: broker,controller
-
       KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
-
-      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-
-      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-
+      KAFKA_CFG_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: INTERNAL
       ALLOW_PLAINTEXT_LISTENER: "yes"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    container_name: banco-keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME: "http://localhost:8081"
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./keycloak/realm-banco.json:/opt/keycloak/data/import/realm-banco.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  eureka-server:
+    build:
+      context: ../eureka-server
+    image: banco-eureka:latest
+    container_name: banco-eureka
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8761/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 25s
+
+  config-server:
+    build:
+      context: ../config-server
+    image: banco-config-server:latest
+    container_name: banco-config-server
+    ports:
+      - "8888:8888"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8888/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 25s
+
+  clientes-service:
+    build:
+      context: ../clientes-service
+    image: banco-clientes:latest
+    container_name: banco-clientes
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    environment:
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:8081/realms/banco
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/banco/protocol/openid-connect/certs
+    ports:
+      - "8091:8091"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8091/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 25s
+
+  cuentas-service:
+    build:
+      context: ../cuentas-service
+    image: banco-cuentas:latest
+    container_name: banco-cuentas
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    environment:
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:8081/realms/banco
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/banco/protocol/openid-connect/certs
+    ports:
+      - "8092:8092"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8092/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 25s
+
+  bank-batch:
+    build:
+      context: .
+    image: banco-bank-batch:latest
+    container_name: banco-bank-batch
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      clientes-service:
+        condition: service_healthy
+      cuentas-service:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:8081/realms/banco
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/banco/protocol/openid-connect/certs
+      SERVICES_CLIENTES_BASE_URL: http://clientes-service
+      SSL_KEYSTORE_PASSWORD: ${SSL_KEYSTORE_PASSWORD:-changeit}
+    ports:
+      - "8443:8443"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--insecure", "https://localhost:8443/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 35s
 
 volumes:
   banco_data:

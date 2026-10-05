@@ -1,18 +1,26 @@
 package cl.duoc.bank_batch.bff.cajero;
 
+import cl.duoc.bank_batch.kafka.TransaccionEvento;
+import cl.duoc.bank_batch.kafka.TransaccionProducer;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Service
 public class CajeroService {
 
     private final JdbcTemplate jdbcTemplate;
+    private final TransaccionProducer transaccionProducer;
 
-    public CajeroService(JdbcTemplate jdbcTemplate) {
+    public CajeroService(
+            JdbcTemplate jdbcTemplate,
+            TransaccionProducer transaccionProducer) {
+
         this.jdbcTemplate = jdbcTemplate;
+        this.transaccionProducer = transaccionProducer;
     }
 
     @Transactional
@@ -76,6 +84,17 @@ public class CajeroService {
                 saldoActual,
                 saldoPosterior
         );
+
+        TransaccionEvento evento = new TransaccionEvento(
+                "RETIRO_CAJERO",
+                cuentaId,
+                monto,
+                saldoActual,
+                saldoPosterior,
+                LocalDateTime.now()
+        );
+
+        transaccionProducer.enviarTransaccion(evento);
 
         return new RetiroResponseDTO(
                 "cajero",

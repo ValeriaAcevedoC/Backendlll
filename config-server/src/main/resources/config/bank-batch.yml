@@ -1,2 +1,15 @@
 mensaje:
   origen: "Configuracion centralizada desde Config Server"
+
+services:
+  clientes:
+    base-url: http://clientes-service
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      clientesService:
+        sliding-window-size: 5
+        minimum-number-of-calls: 3
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 5s

@@ -8,11 +8,12 @@ Proyecto grupal (Backend III, PBY2203) que evoluciona el sistema bancario `bank-
 |---|---|---|
 | `config-server` | 8888 | Servidor de configuracion centralizada (modo native) |
 | `eureka-server` | 8761 | Service Discovery |
-| `bank-batch` | 8443 (HTTPS) | Microservicio principal: batch bancario + BFFs + JWT + Circuit Breaker |
-| `clientes-service` | 8091 | Microservicio de clientes, seguridad Basic Auth |
-| `cuentas-service` | 8092 | Microservicio de cuentas, seguridad Basic Auth |
+| `bank-batch` | 8443 (HTTPS) | Microservicio principal: batch bancario + BFFs + OAuth2 + Circuit Breaker |
+| `clientes-service` | 8091 | Microservicio de clientes protegido como OAuth2 Resource Server |
+| `cuentas-service` | 8092 | Microservicio de cuentas protegido como OAuth2 Resource Server |
 | `banco-postgres` | 5433 -> 5432 | Base de datos PostgreSQL local |
 | `banco-kafka` | 9092 -> 9092 | Broker Apache Kafka local |
+| `banco-keycloak` | 8081 -> 8080 | Servidor de identidad OAuth2/OIDC |
 
 Todos los microservicios (`bank-batch`, `clientes-service`, `cuentas-service`) se registran en `eureka-server` y consumen configuracion desde `config-server`.
 
@@ -37,43 +38,27 @@ El Circuit Breaker (Resilience4j) se implementa desde `bank-batch`, actuando com
 - Java 21
 - Spring Boot 4.1.0
 - Spring Cloud 2025.1.2 (Config Server, Eureka, Resilience4j)
-- Spring Security
+- Spring Security OAuth2 Resource Server
+- Keycloak 26.4
 - PostgreSQL 16 (Docker Compose)
 - Apache Kafka (Docker Compose)
 - Maven Wrapper
 
 ## Orden de arranque
 
+Todo el entorno se construye y levanta desde Docker Compose:
+
 ```powershell
-# 1. Infraestructura Docker: PostgreSQL y Kafka
 cd bank-batch
-docker compose up -d
-
-# 2. Comprobar contenedores
-docker ps
-
-# 3. Config Server
-cd ..\config-server
-.\mvnw.cmd spring-boot:run
-
-# 4. Eureka Server
-cd ..\eureka-server
-.\mvnw.cmd spring-boot:run
-
-# 5. clientes-service
-cd ..\clientes-service
-.\mvnw.cmd spring-boot:run
-
-# 6. cuentas-service
-cd ..\cuentas-service
-.\mvnw.cmd spring-boot:run
-
-# 7. bank-batch
-cd ..\bank-batch
-.\mvnw.cmd spring-boot:run
+Copy-Item .env.example .env
+# Editar .env y reemplazar los valores TU_...
+docker compose up --build -d
+docker compose ps
 ```
 
-Verificacion: `http://localhost:8761` debe mostrar los tres microservicios (`BANK-BATCH`, `CLIENTES-SERVICE`, `CUENTAS-SERVICE`) con estado `UP`.
+Los healthchecks coordinan el inicio de PostgreSQL, Kafka, Keycloak, Config Server,
+Eureka y los tres microservicios. `http://localhost:8761` debe mostrar
+`BANK-BATCH`, `CLIENTES-SERVICE` y `CUENTAS-SERVICE` con estado `UP`.
 
 ---
 
@@ -138,7 +123,7 @@ El sistema incluye:
 - Procesamiento de movimientos anuales.
 - Generacion de resumenes diarios y anuales.
 - APIs BFF para Web, Movil y Cajero.
-- Autenticacion con JWT.
+- Autenticacion OAuth2/OIDC con tokens JWT emitidos por Keycloak.
 - Autorizacion por rol de canal.
 - HTTPS local con keystore PKCS12.
 - Configuracion centralizada via Config Server.
@@ -156,7 +141,7 @@ El sistema incluye:
 - Spring Web
 - Spring Security
 - Spring Kafka
-- JJWT 0.12.6
+- OAuth2 Resource Server y Keycloak 26.4
 - PostgreSQL 16
 - Apache Kafka
 - Docker Compose
@@ -268,7 +253,9 @@ Movimientos anuales:
 
 ## Infraestructura Docker
 
-La infraestructura local de `bank-batch` se levanta con `docker-compose.yml` e incluye PostgreSQL y Apache Kafka.
+`docker-compose.yml` construye y orquesta PostgreSQL, Kafka, Keycloak, Config
+Server, Eureka y los tres microservicios. No es necesario crear las imagenes
+Java manualmente.
 
 ### PostgreSQL
 
@@ -288,8 +275,18 @@ La infraestructura local de `bank-batch` se levanta con `docker-compose.yml` e i
 | Imagen | `bitnamilegacy/kafka:4.0.0-debian-12-r10` |
 | Contenedor | `banco-kafka` |
 | Puerto local | `9092` |
-| Listener anunciado | `PLAINTEXT://localhost:9092` |
+| Listener externo | `PLAINTEXT://localhost:9092` |
+| Listener entre contenedores | `PLAINTEXT://kafka:29092` |
 | Protocolo | `PLAINTEXT` |
+
+### Keycloak
+
+El realm `banco` se importa automaticamente desde
+`keycloak/realm-banco.json`. Incluye el cliente publico
+`bank-batch-client`, los roles `WEB`, `MOVIL` y `CAJERO`, y usuarios de
+demostracion para cada canal. El realm es declarativo y se vuelve a importar
+cuando se recrea el contenedor; la configuracion manual hecha dentro de
+Keycloak no se considera persistente.
 
 El archivo `src/main/resources/schema.sql` crea estas tablas:
 
@@ -368,14 +365,16 @@ En `bank-batch/pom.xml` la integracion con Kafka se encuentra declarada mediante
 
 ## Ejecucion
 
-### 1. Levantar infraestructura local
+### 1. Levantar el entorno completo
 
 ```powershell
-docker compose up -d
-docker ps
+Copy-Item .env.example .env
+docker compose up --build -d
+docker compose ps
 ```
 
-Debe quedar activo `banco-postgres` para la base de datos y `banco-kafka` para la mensajeria asincrona.
+Todos los servicios deben aparecer como `healthy`. La primera construccion puede
+tardar algunos minutos mientras Maven y Docker descargan dependencias.
 
 ### 2. Compilar
 
@@ -402,6 +401,14 @@ https://localhost:8443
 ```
 
 Como el certificado es local/autofirmado, en `curl` se usa `-k`.
+Si el `curl.exe` de Windows muestra `SEC_E_NO_CREDENTIALS` por Schannel, se
+puede realizar la misma llamada desde Postman o desde el contenedor:
+
+```powershell
+docker exec banco-bank-batch curl -k `
+  -H "Authorization: Bearer $tokenWeb" `
+  https://localhost:8443/api/bff/web/resumen
+```
 
 En PowerShell, para aceptar el certificado local en esta version del entorno, ejecutar primero:
 
@@ -435,15 +442,11 @@ Para que las APIs BFF tengan datos completos, se recomienda ejecutar al menos:
 
 ## Seguridad
 
-La seguridad esta implementada con Spring Security y JWT.
+La seguridad esta implementada con Spring Security OAuth2 Resource Server. Los
+tokens JWT son emitidos por Keycloak y validados por `bank-batch`,
+`clientes-service` y `cuentas-service`.
 
-Endpoint publico:
-
-```http
-POST /auth/login
-```
-
-Usuarios en memoria:
+Usuarios de demostracion importados en el realm `banco`:
 
 | Canal | Usuario | Password | Rol |
 |---|---|---|---|
@@ -456,29 +459,32 @@ Reglas de autorizacion:
 - `/api/bff/web/**` requiere rol `WEB`.
 - `/api/bff/movil/**` requiere rol `MOVIL`.
 - `/api/bff/cajero/**` requiere rol `CAJERO`.
-- `/api/debug/**` y `/api/kafka/**` estan permitidos publicamente para pruebas academicas locales.
-- El resto de rutas requiere autenticacion.
+- `/actuator/health` es publico para los healthchecks.
+- `/api/debug/**`, `/api/kafka/**` y el resto de rutas requieren autenticacion.
 
-El token JWT dura 1 hora.
+`bank-batch` propaga el Bearer token al invocar `clientes-service`. La llamada
+utiliza el nombre `clientes-service` resuelto mediante Eureka y esta protegida
+por el Circuit Breaker de Resilience4j.
 
 ### Obtener token
 
 ```powershell
-[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+$tokenResponse = Invoke-RestMethod `
+  -Uri "http://localhost:8081/realms/banco/protocol/openid-connect/token" `
+  -Method POST `
+  -ContentType "application/x-www-form-urlencoded" `
+  -Body @{
+    client_id  = "bank-batch-client"
+    grant_type = "password"
+    username   = "web"
+    password   = "web123"
+  }
 
-$login = @{ usuario = "web"; password = "web123" } | ConvertTo-Json
-$tokenWeb = (Invoke-RestMethod -Uri "https://localhost:8443/auth/login" -Method POST -ContentType "application/json" -Body $login).token
-```
+$tokenWeb = $tokenResponse.access_token
 
-Respuesta del login:
-
-```json
-{
-  "usuario": "web",
-  "roles": ["ROLE_WEB"],
-  "token": "jwt-generado",
-  "tipo": "Bearer"
-}
+curl.exe -k `
+  -H "Authorization: Bearer $tokenWeb" `
+  "https://localhost:8443/api/bff/web/resumen"
 ```
 
 ## APIs BFF
@@ -590,7 +596,7 @@ POST /api/kafka/enviar?mensaje={mensaje}
 Ejemplo probado:
 
 ```powershell
-curl.exe -k -X POST "https://localhost:8443/api/kafka/enviar?mensaje=SegundoEventoKafka"
+curl.exe -k -X POST -H "Authorization: Bearer $tokenWeb" "https://localhost:8443/api/kafka/enviar?mensaje=SegundoEventoKafka"
 ```
 
 Respuesta observada:
@@ -604,7 +610,7 @@ Evento enviado a Kafka: SegundoEventoKafka
 Enviar evento:
 
 ```powershell
-curl.exe -k -X POST "https://localhost:8443/api/kafka/enviar?mensaje=PruebaKafkaSemana7"
+curl.exe -k -X POST -H "Authorization: Bearer $tokenWeb" "https://localhost:8443/api/kafka/enviar?mensaje=PruebaKafkaSemana7"
 ```
 
 Debe responder con el texto `Evento enviado a Kafka: PruebaKafkaSemana7`.
@@ -658,10 +664,10 @@ La implementacion real utiliza la anotacion:
 @CircuitBreaker(name = "clientesService", fallbackMethod = "fallbackClientes")
 ```
 
-`ClientesClient` consume el endpoint:
+`ClientesClient` consume el endpoint mediante el nombre registrado en Eureka:
 
 ```text
-http://localhost:8091/api/clientes
+http://clientes-service/api/clientes
 ```
 
 ```http
@@ -684,7 +690,7 @@ Esto demuestra tolerancia a fallos y recuperacion del servicio consumidor sin pr
 ### Pruebas Resilience4j
 
 ```powershell
-curl.exe -k "https://localhost:8443/api/debug/clientes"
+curl.exe -k -H "Authorization: Bearer $tokenWeb" "https://localhost:8443/api/debug/clientes"
 ```
 
 Resultados esperados:
@@ -712,7 +718,7 @@ Para el informe o presentacion final se recomienda respaldar la implementacion c
 
 # Microservicio: Clientes Service
 
-Microservicio que expone datos de clientes migrados, registrado en Eureka y protegido con Basic Auth. Es consumido por `bank-batch` a traves de un Circuit Breaker con Fallback.
+Microservicio que expone datos de clientes migrados, registrado en Eureka y protegido como OAuth2 Resource Server. Es consumido por `bank-batch` a traves de un Circuit Breaker con Fallback.
 
 ## Tecnologias
 
@@ -720,7 +726,7 @@ Microservicio que expone datos de clientes migrados, registrado en Eureka y prot
 - Spring Boot 4.1.0
 - Spring Cloud 2025.1.2 (Config Client, Eureka Client)
 - Spring Web
-- Spring Security (Basic Auth)
+- Spring Security OAuth2 Resource Server
 
 ## Configuracion
 
@@ -731,8 +737,8 @@ spring.config.import=optional:configserver:http://localhost:8888
 eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
 eureka.instance.prefer-ip-address=true
 
-app.security.user=admin
-app.security.password=admin123
+spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:8081/realms/banco
+spring.security.oauth2.resourceserver.jwt.jwk-set-uri=http://localhost:8081/realms/banco/protocol/openid-connect/certs
 ```
 
 ## Endpoints
@@ -742,7 +748,7 @@ GET /api/clientes
 GET /api/clientes/{id}
 ```
 
-Requieren autenticacion Basic Auth (`admin` / `admin123`).
+Requieren un Bearer token emitido por el realm `banco` de Keycloak.
 
 ## Ejecucion
 
@@ -757,13 +763,13 @@ GET http://localhost:8091/api/clientes
 ```
 
 - Sin credenciales: `401 Unauthorized`
-- Con Basic Auth: `200 OK` con la lista de clientes
+- Con Bearer token valido: `200 OK` con la lista de clientes
 
 ---
 
 # Microservicio: Cuentas Service
 
-Microservicio que expone datos de cuentas migradas, registrado en Eureka y protegido con Basic Auth.
+Microservicio que expone datos de cuentas migradas, registrado en Eureka y protegido como OAuth2 Resource Server.
 
 ## Tecnologias
 
@@ -771,7 +777,7 @@ Microservicio que expone datos de cuentas migradas, registrado en Eureka y prote
 - Spring Boot 4.1.0
 - Spring Cloud 2025.1.2 (Config Client, Eureka Client)
 - Spring Web
-- Spring Security (Basic Auth)
+- Spring Security OAuth2 Resource Server
 
 ## Configuracion
 
@@ -782,8 +788,8 @@ spring.config.import=optional:configserver:http://localhost:8888
 eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
 eureka.instance.prefer-ip-address=true
 
-app.security.user=admin
-app.security.password=admin123
+spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:8081/realms/banco
+spring.security.oauth2.resourceserver.jwt.jwk-set-uri=http://localhost:8081/realms/banco/protocol/openid-connect/certs
 ```
 
 ## Endpoints
@@ -793,7 +799,7 @@ GET /api/cuentas
 GET /api/cuentas/{id}
 ```
 
-Requieren autenticacion Basic Auth (`admin` / `admin123`).
+Requieren un Bearer token emitido por el realm `banco` de Keycloak.
 
 ## Ejecucion
 
@@ -808,7 +814,7 @@ GET http://localhost:8092/api/cuentas
 ```
 
 - Sin credenciales: `401 Unauthorized`
-- Con Basic Auth: `200 OK` con la lista de cuentas
+- Con Bearer token valido: `200 OK` con la lista de cuentas
 
 ---
 

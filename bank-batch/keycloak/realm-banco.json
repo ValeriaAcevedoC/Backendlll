@@ -1,0 +1,75 @@
+{
+  "realm": "banco",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "roles": {
+    "realm": [
+      { "name": "WEB", "description": "Acceso al BFF web" },
+      { "name": "MOVIL", "description": "Acceso al BFF movil" },
+      { "name": "CAJERO", "description": "Acceso al BFF cajero" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "bank-batch-client",
+      "name": "Bank Batch",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "roles",
+        "profile",
+        "basic",
+        "email"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "web",
+      "firstName": "Usuario",
+      "lastName": "Web",
+      "email": "web@banco.local",
+      "emailVerified": true,
+      "enabled": true,
+      "requiredActions": [],
+      "credentials": [
+        { "type": "password", "value": "web123", "temporary": false }
+      ],
+      "realmRoles": ["WEB"]
+    },
+    {
+      "username": "movil",
+      "firstName": "Usuario",
+      "lastName": "Movil",
+      "email": "movil@banco.local",
+      "emailVerified": true,
+      "enabled": true,
+      "requiredActions": [],
+      "credentials": [
+        { "type": "password", "value": "movil123", "temporary": false }
+      ],
+      "realmRoles": ["MOVIL"]
+    },
+    {
+      "username": "cajero",
+      "firstName": "Usuario",
+      "lastName": "Cajero",
+      "email": "cajero@banco.local",
+      "emailVerified": true,
+      "enabled": true,
+      "requiredActions": [],
+      "credentials": [
+        { "type": "password", "value": "cajero123", "temporary": false }
+      ],
+      "realmRoles": ["CAJERO"]
+    }
+  ]
+}
