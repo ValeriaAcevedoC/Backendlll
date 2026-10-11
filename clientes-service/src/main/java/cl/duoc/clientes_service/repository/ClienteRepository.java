@@ -1,28 +1,66 @@
 package cl.duoc.clientes_service.repository;
 
 import cl.duoc.clientes_service.model.Cliente;
+import java.util.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
-
-import java.util.List;
-import java.util.Optional;
+import org.springframework.web.server.ResponseStatusException;
 
 @Repository
 public class ClienteRepository {
+  private final JdbcTemplate jdbc;
 
-    // Datos de ejemplo migrados desde bank_legacy_data
-    private final List<Cliente> clientes = List.of(
-        new Cliente(101L, "Camila Rojas", "12.345.678-9", "camila.rojas@mail.cl"),
-        new Cliente(102L, "Matías Fuentes", "13.456.789-0", "matias.fuentes@mail.cl"),
-        new Cliente(103L, "Valentina Soto", "14.567.890-1", "valentina.soto@mail.cl"),
-        new Cliente(104L, "Diego Herrera", "15.678.901-2", "diego.herrera@mail.cl"),
-        new Cliente(105L, "Antonia Vega", "16.789.012-3", "antonia.vega@mail.cl")
-    );
+  public ClienteRepository(JdbcTemplate j) {
+    jdbc = j;
+  }
 
-    public List<Cliente> findAll() {
-        return clientes;
-    }
+  public List<Cliente> findAll() {
+    return jdbc.query("SELECT * FROM clientes ORDER BY id", this::map);
+  }
 
-    public Optional<Cliente> findById(Long id) {
-        return clientes.stream().filter(c -> c.getId().equals(id)).findFirst();
-    }
+  public Optional<Cliente> findById(Long id) {
+    return jdbc.query("SELECT * FROM clientes WHERE id=?", this::map, id).stream().findFirst();
+  }
+
+  public Cliente crear(String n, String r, String e, String p) {
+    var key = new org.springframework.jdbc.support.GeneratedKeyHolder();
+    jdbc.update(
+        c -> {
+          var s =
+              c.prepareStatement(
+                  "INSERT INTO clientes(nombre,rut,email,perfil,estado) VALUES(?,?,?,?,'ACTIVO')",
+                  new String[] {"id"});
+          s.setString(1, n.trim());
+          s.setString(2, r.trim());
+          s.setString(3, e.trim());
+          s.setString(4, p);
+          return s;
+        },
+        key);
+    return findById(key.getKey().longValue()).orElseThrow();
+  }
+
+  public Cliente actualizar(Long id, String n, String e, String p) {
+    if (jdbc.update(
+            "UPDATE clientes SET"
+                + " nombre=COALESCE(?,nombre),email=COALESCE(?,email),perfil=COALESCE(?,perfil)"
+                + " WHERE id=?",
+            n,
+            e,
+            p,
+            id)
+        == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Cliente no encontrado");
+    return findById(id).orElseThrow();
+  }
+
+  private Cliente map(java.sql.ResultSet r, int n) throws java.sql.SQLException {
+    return new Cliente(
+        r.getLong("id"),
+        r.getString("nombre"),
+        r.getString("rut"),
+        r.getString("email"),
+        r.getString("perfil"),
+        r.getString("estado"));
+  }
 }

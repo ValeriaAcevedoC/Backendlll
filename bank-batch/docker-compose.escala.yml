@@ -1,0 +1,11 @@
+# Superponer a Compose para usar varias instancias sin colisiones de puertos/nombres.
+services:
+  cuentas-service:
+    container_name: !reset null
+    ports: !reset []
+  clientes-service:
+    container_name: !reset null
+    ports: !reset []
+  pagos-service:
+    container_name: !reset null
+    ports: !reset []

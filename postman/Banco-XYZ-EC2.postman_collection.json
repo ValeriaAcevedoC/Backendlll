@@ -1,0 +1,917 @@
+{
+  "info": {
+    "name": "Banco XYZ - EC2 - BFF y Batch",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Ejemplos para EC2 52.23.243.216. Importar en Postman y desactivar SSL certificate verification durante las pruebas con el certificado de demostracion. Enviar Salud y los tres tokens antes de probar cada canal. Las peticiones de token guardan access_token automaticamente. Las solicitudes heredan el token del canal desde su carpeta. Ejecutar las peticiones manualmente en orden; los POST y PATCH modifican datos de prueba. Para otra ronda cambiar prueba_id (hasta 17 caracteres); mantenerlo al reintentar una operacion. Las cuentas iniciales son 201 y 202. Los CSV de Batch corresponden a 2024. Solo requiere puertos 8081, 8443, 8451, 8452 y 8453. Los tokens exportados deben mantenerse privados."
+  },
+  "variable": [
+    {
+      "key": "host",
+      "value": "52.23.243.216",
+      "type": "string"
+    },
+    {
+      "key": "prueba_id",
+      "value": "001",
+      "type": "string"
+    },
+    {
+      "key": "token_web",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "token_movil",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "token_cajero",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cliente_nuevo_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cuenta_nueva_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "ejecucion_transaccion_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "ejecucion_interes_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "ejecucion_anual_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Salud (sin token)",
+      "description": "Enviar primero estas peticiones. Se espera HTTP 200 y status UP.",
+      "item": [
+        {
+          "name": "Salud puerto 8443",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8443/actuator/health",
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Salud puerto 8451",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8451/actuator/health",
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Salud puerto 8452",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8452/actuator/health",
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Salud puerto 8453",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8453/actuator/health",
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Descubrimiento de Keycloak",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8081/realms/banco/.well-known/openid-configuration",
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Obtener tokens",
+      "description": "Enviar los tres POST. Cada petición guarda su token en una variable de colección.",
+      "item": [
+        {
+          "name": "Token web",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "url": "https://{{host}}:8081/realms/banco/protocol/openid-connect/token",
+            "description": "Usuario de demostración web. Guarda automáticamente access_token en token_web. Si el token vence, reenviar esta petición.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "client_id",
+                  "value": "bank-batch-client",
+                  "type": "text"
+                },
+                {
+                  "key": "grant_type",
+                  "value": "password",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "web",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "web123",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Keycloak devuelve HTTP 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('La respuesta contiene access_token', function () {",
+                  "    pm.expect(data.access_token).to.be.a('string').and.not.empty;",
+                  "  });",
+                  "  if (data.access_token) pm.collectionVariables.set('token_web', data.access_token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Token movil",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "url": "https://{{host}}:8081/realms/banco/protocol/openid-connect/token",
+            "description": "Usuario de demostración movil. Guarda automáticamente access_token en token_movil. Si el token vence, reenviar esta petición.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "client_id",
+                  "value": "bank-batch-client",
+                  "type": "text"
+                },
+                {
+                  "key": "grant_type",
+                  "value": "password",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "movil",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "movil123",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Keycloak devuelve HTTP 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('La respuesta contiene access_token', function () {",
+                  "    pm.expect(data.access_token).to.be.a('string').and.not.empty;",
+                  "  });",
+                  "  if (data.access_token) pm.collectionVariables.set('token_movil', data.access_token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Token cajero",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "url": "https://{{host}}:8081/realms/banco/protocol/openid-connect/token",
+            "description": "Usuario de demostración cajero. Guarda automáticamente access_token en token_cajero. Si el token vence, reenviar esta petición.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "client_id",
+                  "value": "bank-batch-client",
+                  "type": "text"
+                },
+                {
+                  "key": "grant_type",
+                  "value": "password",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "cajero",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "cajero123",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Keycloak devuelve HTTP 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('La respuesta contiene access_token', function () {",
+                  "    pm.expect(data.access_token).to.be.a('string').and.not.empty;",
+                  "  });",
+                  "  if (data.access_token) pm.collectionVariables.set('token_cajero', data.access_token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. BFF web",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{token_web}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "Resumen web",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8451/api/bff/web/resumen",
+            "description": ""
+          }
+        },
+        {
+          "name": "Cuenta 201",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8451/api/bff/web/cuentas/201",
+            "description": ""
+          }
+        },
+        {
+          "name": "Movimientos de cuenta 201",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8451/api/bff/web/cuentas/201/movimientos?pagina=0&limite=5",
+            "description": ""
+          }
+        },
+        {
+          "name": "Depositar 50000 en cuenta 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "https://{{host}}:8451/api/bff/web/depositos",
+            "description": "Esta petición modifica saldos de prueba. Conservar la misma idempotencia y el mismo cuerpo al reintentar; para una operación nueva cambiar prueba_id en las variables de la colección.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idempotencia\": \"web-deposito-{{prueba_id}}\",\n  \"tipo\": \"DEPOSITO\",\n  \"cuentaDestino\": 201,\n  \"monto\": 50000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Pagar 1000 desde cuenta 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "https://{{host}}:8451/api/bff/web/pagos",
+            "description": "Esta petición modifica saldos de prueba. Conservar la misma idempotencia y el mismo cuerpo al reintentar; para una operación nueva cambiar prueba_id en las variables de la colección.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idempotencia\": \"web-pago-{{prueba_id}}\",\n  \"tipo\": \"PAGO\",\n  \"cuentaOrigen\": 201,\n  \"monto\": 1000,\n  \"referencia\": \"Servicio de prueba Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Transferir 2000 de cuenta 201 a 202",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "https://{{host}}:8451/api/bff/web/transferencias",
+            "description": "Esta petición modifica saldos de prueba. Conservar la misma idempotencia y el mismo cuerpo al reintentar; para una operación nueva cambiar prueba_id en las variables de la colección.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idempotencia\": \"web-transferencia-{{prueba_id}}\",\n  \"tipo\": \"TRANSFERENCIA\",\n  \"cuentaOrigen\": 201,\n  \"cuentaDestino\": 202,\n  \"monto\": 2000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Crear cliente de prueba",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "https://{{host}}:8451/api/bff/web/clientes",
+            "description": "Se espera HTTP 201. Guarda el ID devuelto en cliente_nuevo_id. Usar prueba_id de hasta 17 caracteres para que el RUT sintético no supere 20; esta API no valida su dígito verificador.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Cliente Postman\",\n  \"rut\": \"PM-{{prueba_id}}\",\n  \"email\": \"postman@example.com\",\n  \"perfil\": \"PERSONA\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.id !== undefined) {",
+                  "    pm.collectionVariables.set('cliente_nuevo_id', String(data.id));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Actualizar cliente nuevo",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "https://{{host}}:8451/api/bff/web/clientes/{{cliente_nuevo_id}}",
+            "description": "Enviar Crear cliente de prueba antes de esta petición.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Cliente Postman actualizado\",\n  \"email\": \"actualizado@example.com\",\n  \"perfil\": \"EMPRESA\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Abrir cuenta nueva sin saldo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "https://{{host}}:8451/api/bff/web/cuentas",
+            "description": "Enviar Crear cliente de prueba antes. Se espera HTTP 201 y saldo 0. Guarda el ID en cuenta_nueva_id.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"clienteId\": {{cliente_nuevo_id}},\n  \"tipo\": \"ahorro\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.id !== undefined) {",
+                  "    pm.collectionVariables.set('cuenta_nueva_id', String(data.id));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cambiar tipo de cuenta nueva",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "https://{{host}}:8451/api/bff/web/cuentas/{{cuenta_nueva_id}}",
+            "description": "Enviar Abrir cuenta nueva sin saldo antes.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tipo\": \"corriente\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Cerrar cuenta nueva sin saldo",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "https://{{host}}:8451/api/bff/web/cuentas/{{cuenta_nueva_id}}/cierre",
+            "description": "Enviar Abrir cuenta nueva sin saldo antes. El cierre requiere saldo cero; no usar la cuenta inicial 201 para esta prueba."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. BFF movil",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{token_movil}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "Resumen movil",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8452/api/bff/movil/resumen",
+            "description": ""
+          }
+        },
+        {
+          "name": "Cuenta 201 y ultimos movimientos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8452/api/bff/movil/cuentas/201",
+            "description": ""
+          }
+        },
+        {
+          "name": "Pagar 100 desde cuenta 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "https://{{host}}:8452/api/bff/movil/pagos",
+            "description": "Esta petición modifica saldos de prueba. Conservar la misma idempotencia y el mismo cuerpo al reintentar; para una operación nueva cambiar prueba_id en las variables de la colección.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idempotencia\": \"movil-pago-{{prueba_id}}\",\n  \"tipo\": \"PAGO\",\n  \"cuentaOrigen\": 201,\n  \"monto\": 100,\n  \"referencia\": \"Pago movil Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Transferir 100 de cuenta 201 a 202",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "https://{{host}}:8452/api/bff/movil/transferencias",
+            "description": "Esta petición modifica saldos de prueba. Conservar la misma idempotencia y el mismo cuerpo al reintentar; para una operación nueva cambiar prueba_id en las variables de la colección.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idempotencia\": \"movil-transferencia-{{prueba_id}}\",\n  \"tipo\": \"TRANSFERENCIA\",\n  \"cuentaOrigen\": 201,\n  \"cuentaDestino\": 202,\n  \"monto\": 100\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. BFF cajero",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{token_cajero}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "Consultar saldo de cuenta 201",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8453/api/bff/cajero/saldo/201",
+            "description": ""
+          }
+        },
+        {
+          "name": "Retirar 10000 de cuenta 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "https://{{host}}:8453/api/bff/cajero/retiro/201",
+            "description": "Esta petición modifica saldos de prueba. Conservar la misma idempotencia y el mismo cuerpo al reintentar; para una operación nueva cambiar prueba_id en las variables de la colección. Enviar dos veces sin cambiar el cuerpo: el saldo debe descontarse una sola vez. Reutilizar la clave con otro monto devuelve 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idempotencia\": \"cajero-retiro-{{prueba_id}}\",\n  \"monto\": 10000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Batch (token web)",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{token_web}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "Ejecutar transaccionJob",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "https://{{host}}:8443/api/batch/jobs/transaccionJob",
+            "description": "Usa los CSV empaquetados de 2024. Esperar a que termine antes de lanzar el siguiente job. Revisar estado y salida: un HTTP 200 puede contener estado FAILED por calidad de los datos. Para una ejecución nueva cambiar prueba_id; reenviar una ejecución ya completada devuelve 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"periodo\": \"2024-06\",\n  \"ejecucion\": \"transaccionJob-{{prueba_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.id !== undefined) {",
+                  "    pm.collectionVariables.set('ejecucion_transaccion_id', String(data.id));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consultar ejecucion de transaccionJob",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8443/api/batch/ejecuciones/{{ejecucion_transaccion_id}}",
+            "description": "El ID se guarda al enviar el POST correspondiente. Si estado es STARTED, repetir esta consulta hasta que termine. Resultado satisfactorio: COMPLETED; investigar FAILED en estado y salida."
+          }
+        },
+        {
+          "name": "Ejecutar interesJob",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "https://{{host}}:8443/api/batch/jobs/interesJob",
+            "description": "Usa los CSV empaquetados de 2024. Esperar a que termine antes de lanzar el siguiente job. Revisar estado y salida: un HTTP 200 puede contener estado FAILED por calidad de los datos. Para una ejecución nueva cambiar prueba_id; reenviar una ejecución ya completada devuelve 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"periodo\": \"2024-06\",\n  \"ejecucion\": \"interesJob-{{prueba_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.id !== undefined) {",
+                  "    pm.collectionVariables.set('ejecucion_interes_id', String(data.id));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consultar ejecucion de interesJob",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8443/api/batch/ejecuciones/{{ejecucion_interes_id}}",
+            "description": "El ID se guarda al enviar el POST correspondiente. Si estado es STARTED, repetir esta consulta hasta que termine. Resultado satisfactorio: COMPLETED; investigar FAILED en estado y salida."
+          }
+        },
+        {
+          "name": "Ejecutar estadoCuentaJob",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "https://{{host}}:8443/api/batch/jobs/estadoCuentaJob",
+            "description": "Usa los CSV empaquetados de 2024. Esperar a que termine antes de lanzar el siguiente job. Revisar estado y salida: un HTTP 200 puede contener estado FAILED por calidad de los datos. Para una ejecución nueva cambiar prueba_id; reenviar una ejecución ya completada devuelve 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"periodo\": \"2024-06\",\n  \"ejecucion\": \"estadoCuentaJob-{{prueba_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.id !== undefined) {",
+                  "    pm.collectionVariables.set('ejecucion_anual_id', String(data.id));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consultar ejecucion de estadoCuentaJob",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8443/api/batch/ejecuciones/{{ejecucion_anual_id}}",
+            "description": "El ID se guarda al enviar el POST correspondiente. Si estado es STARTED, repetir esta consulta hasta que termine. Resultado satisfactorio: COMPLETED; investigar FAILED en estado y salida."
+          }
+        },
+        {
+          "name": "Reporte diario",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8443/api/batch/reportes/diario",
+            "description": "Consultar después de completar transaccionJob. Las fechas dependen del CSV de 2024."
+          }
+        },
+        {
+          "name": "Reporte de intereses junio 2024",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8443/api/batch/reportes/intereses?periodo=2024-06",
+            "description": "Consultar después de completar interesJob para el período 2024-06."
+          }
+        },
+        {
+          "name": "Reporte anual 2024",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8443/api/batch/reportes/anual?anio=2024",
+            "description": "Consultar después de completar estadoCuentaJob. El CSV anual contiene fechas de 2024."
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Diagnostico Batch (token web)",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{token_web}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "Configuracion central",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8443/api/debug/config",
+            "description": ""
+          }
+        },
+        {
+          "name": "Clientes desde Batch",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "https://{{host}}:8443/api/debug/clientes",
+            "description": ""
+          }
+        },
+        {
+          "name": "Enviar mensaje de prueba a Kafka",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "https://{{host}}:8443/api/kafka/enviar?mensaje=Prueba-Postman-{{prueba_id}}",
+            "description": "Publica un mensaje de prueba usando el broker interno. No se necesita abrir el puerto Kafka a Internet."
+          }
+        }
+      ]
+    }
+  ]
+}

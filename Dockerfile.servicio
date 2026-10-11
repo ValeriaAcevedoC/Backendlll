@@ -1,0 +1,21 @@
+FROM maven:3.9-eclipse-temurin-21 AS build
+WORKDIR /app
+COPY pom.xml .
+COPY bank-common bank-common
+COPY config-server config-server
+COPY eureka-server eureka-server
+COPY clientes-service clientes-service
+COPY cuentas-service cuentas-service
+COPY pagos-service pagos-service
+COPY bff-web bff-web
+COPY bff-movil bff-movil
+COPY bff-cajero bff-cajero
+COPY bank-batch bank-batch
+RUN --mount=type=cache,target=/root/.m2,sharing=locked mvn -B -ntp package -DskipTests
+ARG MODULE
+RUN cp ${MODULE}/target/*.jar /app/servicio.jar
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+COPY --from=build /app/servicio.jar app.jar
+ENTRYPOINT ["java","-jar","app.jar"]

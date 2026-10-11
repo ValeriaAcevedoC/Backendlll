@@ -4,280 +4,244 @@ import cl.duoc.bank_batch.model.Transaccion;
 import cl.duoc.bank_batch.policy.CustomSkipPolicy;
 import cl.duoc.bank_batch.policy.DataQualityDecider;
 import cl.duoc.bank_batch.processor.TransaccionProcessor;
-
+import javax.sql.DataSource;
+import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.Step;
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.core.step.tasklet.Tasklet;
-
 import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter;
 import org.springframework.batch.infrastructure.item.database.builder.JdbcBatchItemWriterBuilder;
-
 import org.springframework.batch.infrastructure.item.file.FlatFileItemReader;
 import org.springframework.batch.infrastructure.item.file.builder.FlatFileItemReaderBuilder;
-
 import org.springframework.batch.infrastructure.item.support.SynchronizedItemStreamReader;
 import org.springframework.batch.infrastructure.item.support.builder.SynchronizedItemStreamReaderBuilder;
-
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
-import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
 import org.springframework.core.task.AsyncTaskExecutor;
-
 import org.springframework.dao.TransientDataAccessException;
-
 import org.springframework.jdbc.core.JdbcTemplate;
-
 import org.springframework.transaction.PlatformTransactionManager;
-
-import javax.sql.DataSource;
 
 @Configuration
 public class TransaccionJobConfig {
 
-    // -------------------------------------------------
-    // READER
-    // -------------------------------------------------
+  // -------------------------------------------------
+  // READER
+  // -------------------------------------------------
 
-    @Bean
-    public SynchronizedItemStreamReader<Transaccion> transaccionReader() {
+  @Bean
+  @StepScope
+  public SynchronizedItemStreamReader<Transaccion> transaccionReader(
+      @Value("#{jobParameters['archivo'] ?: 'classpath:data/transacciones.csv'}")
+          Resource archivo) {
 
-        FlatFileItemReader<Transaccion> delegate =
-                new FlatFileItemReaderBuilder<Transaccion>()
-                        .name("transaccionReader")
-                        .resource(
-                                new ClassPathResource(
-                                        "data/transacciones.csv"
-                                )
-                        )
-                        .linesToSkip(1)
-                        .delimited()
-                        .names(
-                                "id",
-                                "fecha",
-                                "monto",
-                                "tipo"
-                        )
-                        .targetType(Transaccion.class)
-                        .build();
+    FlatFileItemReader<Transaccion> delegate =
+        new FlatFileItemReaderBuilder<Transaccion>()
+            .name("transaccionReader")
+            .resource(archivo)
+            .linesToSkip(1)
+            .delimited()
+            .names("id", "fecha", "monto", "tipo")
+            .targetType(Transaccion.class)
+            .build();
 
-        return new SynchronizedItemStreamReaderBuilder<Transaccion>()
-                .delegate(delegate)
-                .build();
-    }
+    return new SynchronizedItemStreamReaderBuilder<Transaccion>().delegate(delegate).build();
+  }
 
-    // -------------------------------------------------
-    // WRITER
-    // -------------------------------------------------
+  // -------------------------------------------------
+  // WRITER
+  // -------------------------------------------------
 
-    @Bean
-    public JdbcBatchItemWriter<Transaccion> transaccionWriter(
-            DataSource dataSource) {
+  @Bean
+  public JdbcBatchItemWriter<Transaccion> transaccionWriter(DataSource dataSource) {
 
-        return new JdbcBatchItemWriterBuilder<Transaccion>()
-                .dataSource(dataSource)
-                .sql("""
-                    INSERT INTO transacciones_procesadas
-                    (
-                        id,
-                        fecha,
-                        monto,
-                        tipo,
-                        anomalia,
-                        detalle_anomalia
-                    )
-                    VALUES
-                    (
-                        :id,
-                        CAST(:fecha AS DATE),
-                        :monto,
-                        :tipo,
-                        :anomalia,
-                        :detalleAnomalia
-                    )
-                    ON CONFLICT (id) DO UPDATE SET
-                        fecha = EXCLUDED.fecha,
-                        monto = EXCLUDED.monto,
-                        tipo = EXCLUDED.tipo,
-                        anomalia = EXCLUDED.anomalia,
-                        detalle_anomalia = EXCLUDED.detalle_anomalia
-                    """)
-                .beanMapped()
-                .build();
-    }
+    return new JdbcBatchItemWriterBuilder<Transaccion>()
+        .dataSource(dataSource)
+        .sql(
+            """
+            INSERT INTO transacciones_procesadas
+            (
+                id,
+                fecha,
+                monto,
+                tipo,
+                anomalia,
+                detalle_anomalia
+            )
+            VALUES
+            (
+                :id,
+                CAST(:fecha AS DATE),
+                :monto,
+                :tipo,
+                :anomalia,
+                :detalleAnomalia
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                fecha = EXCLUDED.fecha,
+                monto = EXCLUDED.monto,
+                tipo = EXCLUDED.tipo,
+                anomalia = EXCLUDED.anomalia,
+                detalle_anomalia = EXCLUDED.detalle_anomalia
+            """)
+        .beanMapped()
+        .build();
+  }
 
-    // -------------------------------------------------
-    // STEP TRANSACCIONES
-    // -------------------------------------------------
+  // -------------------------------------------------
+  // STEP TRANSACCIONES
+  // -------------------------------------------------
 
-    @Bean
-    public Step transaccionStep(
-            JobRepository jobRepository,
-            PlatformTransactionManager transactionManager,
-            SynchronizedItemStreamReader<Transaccion> transaccionReader,
-            TransaccionProcessor transaccionProcessor,
-            JdbcBatchItemWriter<Transaccion> transaccionWriter,
-            CustomSkipPolicy customSkipPolicy,
-            AsyncTaskExecutor taskExecutor) {
+  @Bean
+  public Step transaccionStep(
+      JobRepository jobRepository,
+      PlatformTransactionManager transactionManager,
+      SynchronizedItemStreamReader<Transaccion> transaccionReader,
+      TransaccionProcessor transaccionProcessor,
+      JdbcBatchItemWriter<Transaccion> transaccionWriter,
+      CustomSkipPolicy customSkipPolicy,
+      AsyncTaskExecutor taskExecutor) {
 
-        return new StepBuilder(
-                "transaccionStep",
-                jobRepository
-        )
-                .<Transaccion, Transaccion>chunk(5)
-                .transactionManager(transactionManager)
+    return new StepBuilder("transaccionStep", jobRepository)
+        .<Transaccion, Transaccion>chunk(100)
+        .transactionManager(transactionManager)
+        .reader(transaccionReader)
+        .processor(transaccionProcessor)
+        .writer(transaccionWriter)
 
-                .reader(transaccionReader)
-                .processor(transaccionProcessor)
-                .writer(transaccionWriter)
+        // Tolerancia a fallos
+        .faultTolerant()
 
-                // Tolerancia a fallos
-                .faultTolerant()
+        // Reintento ante errores transitorios de BD
+        .retry(TransientDataAccessException.class)
+        .retryLimit(3)
 
-                // Reintento ante errores transitorios de BD
-                .retry(TransientDataAccessException.class)
-                .retryLimit(3)
+        // Politica personalizada de omisiones
+        .skipPolicy(customSkipPolicy)
 
-                // Politica personalizada de omisiones
-                .skipPolicy(customSkipPolicy)
+        // Procesamiento multihilo
+        .taskExecutor(taskExecutor)
+        .build();
+  }
 
-                // Procesamiento multihilo
-                .taskExecutor(taskExecutor)
+  // -------------------------------------------------
+  // STEP RESUMEN DIARIO
+  // -------------------------------------------------
 
-                .build();
-    }
+  @Bean
+  public Step resumenDiarioStep(
+      JobRepository jobRepository,
+      PlatformTransactionManager transactionManager,
+      DataSource dataSource) {
 
-    // -------------------------------------------------
-    // STEP RESUMEN DIARIO
-    // -------------------------------------------------
+    JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
 
-    @Bean
-    public Step resumenDiarioStep(
-            JobRepository jobRepository,
-            PlatformTransactionManager transactionManager,
-            DataSource dataSource) {
+    Tasklet tasklet =
+        (contribution, chunkContext) -> {
+          jdbcTemplate.update(
+              """
+              INSERT INTO resumen_diario (
+                  fecha,
+                  total_transacciones,
+                  total_creditos,
+                  total_debitos,
+                  saldo_diario,
+                  total_anomalias
+              )
+              SELECT
+                  fecha,
 
-        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+                  COUNT(*) FILTER (
+                      WHERE anomalia = false
+                  ),
 
-        Tasklet tasklet = (contribution, chunkContext) -> {
+                  COALESCE(
+                      SUM(monto) FILTER (
+                          WHERE anomalia = false
+                          AND tipo = 'credito'
+                      ),
+                      0
+                  ),
 
-            jdbcTemplate.update("""
-                INSERT INTO resumen_diario (
-                    fecha,
-                    total_transacciones,
-                    total_creditos,
-                    total_debitos,
-                    saldo_diario,
-                    total_anomalias
-                )
-                SELECT
-                    fecha,
+                  COALESCE(
+                      SUM(monto) FILTER (
+                          WHERE anomalia = false
+                          AND tipo = 'debito'
+                      ),
+                      0
+                  ),
 
-                    COUNT(*) FILTER (
-                        WHERE anomalia = false
-                    ),
+                  COALESCE(
+                      SUM(
+                          CASE
+                              WHEN anomalia = false
+                                  AND tipo = 'credito'
+                                  THEN monto
 
-                    COALESCE(
-                        SUM(monto) FILTER (
-                            WHERE anomalia = false
-                            AND tipo = 'credito'
-                        ),
-                        0
-                    ),
+                              WHEN anomalia = false
+                                  AND tipo = 'debito'
+                                  THEN -monto
 
-                    COALESCE(
-                        SUM(monto) FILTER (
-                            WHERE anomalia = false
-                            AND tipo = 'debito'
-                        ),
-                        0
-                    ),
+                              ELSE 0
+                          END
+                      ),
+                      0
+                  ),
 
-                    COALESCE(
-                        SUM(
-                            CASE
-                                WHEN anomalia = false
-                                    AND tipo = 'credito'
-                                    THEN monto
+                  COUNT(*) FILTER (
+                      WHERE anomalia = true
+                  )
 
-                                WHEN anomalia = false
-                                    AND tipo = 'debito'
-                                    THEN -monto
+              FROM transacciones_procesadas
+              WHERE fecha IS NOT NULL
+              GROUP BY fecha
 
-                                ELSE 0
-                            END
-                        ),
-                        0
-                    ),
+              ON CONFLICT (fecha)
+              DO UPDATE SET
+                  total_transacciones = EXCLUDED.total_transacciones,
+                  total_creditos = EXCLUDED.total_creditos,
+                  total_debitos = EXCLUDED.total_debitos,
+                  saldo_diario = EXCLUDED.saldo_diario,
+                  total_anomalias = EXCLUDED.total_anomalias
+              """);
 
-                    COUNT(*) FILTER (
-                        WHERE anomalia = true
-                    )
+          System.out.println("Resumen diario generado correctamente");
 
-                FROM transacciones_procesadas
-                WHERE fecha IS NOT NULL
-                GROUP BY fecha
-
-                ON CONFLICT (fecha)
-                DO UPDATE SET
-                    total_transacciones = EXCLUDED.total_transacciones,
-                    total_creditos = EXCLUDED.total_creditos,
-                    total_debitos = EXCLUDED.total_debitos,
-                    saldo_diario = EXCLUDED.saldo_diario,
-                    total_anomalias = EXCLUDED.total_anomalias
-                """);
-
-            System.out.println(
-                    "Resumen diario generado correctamente"
-            );
-
-            return null;
+          return null;
         };
 
-        return new StepBuilder(
-                "resumenDiarioStep",
-                jobRepository
-        )
-                .tasklet(
-                        tasklet,
-                        transactionManager
-                )
-                .build();
-    }
+    return new StepBuilder("resumenDiarioStep", jobRepository)
+        .tasklet(tasklet, transactionManager)
+        .build();
+  }
 
-    // -------------------------------------------------
-    // JOB
-    // -------------------------------------------------
+  // -------------------------------------------------
+  // JOB
+  // -------------------------------------------------
 
-    @Bean
-    public Job transaccionJob(
-            JobRepository jobRepository,
-            Step transaccionStep,
-            Step resumenDiarioStep,
-            DataQualityDecider dataQualityDecider) {
+  @Bean
+  public Job transaccionJob(
+      JobRepository jobRepository,
+      Step transaccionStep,
+      Step resumenDiarioStep,
+      DataQualityDecider dataQualityDecider) {
 
-        return new JobBuilder(
-                "transaccionJob",
-                jobRepository
-        )
-                .start(transaccionStep)
+    return new JobBuilder("transaccionJob", jobRepository)
+        .start(transaccionStep)
 
-                // Evalua la calidad de los datos procesados
-                .next(dataQualityDecider)
-                    .on(
-                            DataQualityDecider
-                                    .CALIDAD_INSUFICIENTE
-                    )
-                    .fail()
-
-                .from(dataQualityDecider)
-                    .on("*")
-                    .to(resumenDiarioStep)
-
-                .end()
-                .build();
-    }
+        // Evalua la calidad de los datos procesados
+        .next(dataQualityDecider)
+        .on(DataQualityDecider.CALIDAD_INSUFICIENTE)
+        .fail()
+        .from(dataQualityDecider)
+        .on("*")
+        .to(resumenDiarioStep)
+        .end()
+        .build();
+  }
 }

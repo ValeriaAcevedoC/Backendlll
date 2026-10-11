@@ -1,10 +1,6 @@
 package cl.duoc.bank_batch.processor;
 
 import cl.duoc.bank_batch.model.MovimientoAnual;
-
-import org.springframework.batch.infrastructure.item.ItemProcessor;
-import org.springframework.stereotype.Component;
-
 import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -13,190 +9,154 @@ import java.time.format.ResolverStyle;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import org.springframework.batch.infrastructure.item.ItemProcessor;
+import org.springframework.stereotype.Component;
 
 @Component
-public class MovimientoAnualProcessor
-        implements ItemProcessor<MovimientoAnual, MovimientoAnual> {
+public class MovimientoAnualProcessor implements ItemProcessor<MovimientoAnual, MovimientoAnual> {
 
-    private static final DateTimeFormatter[] FORMATOS_FECHA = {
-            DateTimeFormatter.ISO_LOCAL_DATE,
+  private static final DateTimeFormatter[] FORMATOS_FECHA = {
+    DateTimeFormatter.ISO_LOCAL_DATE,
+    DateTimeFormatter.ofPattern("dd-MM-uuuu").withResolverStyle(ResolverStyle.STRICT),
+    DateTimeFormatter.ofPattern("dd/MM/uuuu").withResolverStyle(ResolverStyle.STRICT),
+    DateTimeFormatter.ofPattern("uuuu/MM/dd").withResolverStyle(ResolverStyle.STRICT)
+  };
 
-            DateTimeFormatter.ofPattern("dd-MM-uuuu")
-                    .withResolverStyle(ResolverStyle.STRICT),
+  @Override
+  public MovimientoAnual process(MovimientoAnual movimiento) {
 
-            DateTimeFormatter.ofPattern("dd/MM/uuuu")
-                    .withResolverStyle(ResolverStyle.STRICT),
+    movimiento.setAnomalia(false);
+    movimiento.setDetalleAnomalia(null);
 
-            DateTimeFormatter.ofPattern("uuuu/MM/dd")
-                    .withResolverStyle(ResolverStyle.STRICT)
-    };
+    System.out.println(
+        "Procesando movimiento cuenta "
+            + movimiento.getCuentaId()
+            + " | "
+            + movimiento.getTransaccion()
+            + " | "
+            + movimiento.getMonto());
 
-    @Override
-    public MovimientoAnual process(MovimientoAnual movimiento) {
+    List<String> anomalias = new ArrayList<>();
 
-        movimiento.setAnomalia(false);
-        movimiento.setDetalleAnomalia(null);
+    // -------------------------------------------------
+    // VALIDACION Y NORMALIZACION DE FECHA
+    // -------------------------------------------------
 
-        System.out.println(
-                "Procesando movimiento cuenta "
-                        + movimiento.getCuentaId()
-                        + " | "
-                        + movimiento.getTransaccion()
-                        + " | "
-                        + movimiento.getMonto()
-        );
+    if (movimiento.getFecha() == null || movimiento.getFecha().isBlank()) {
 
-        List<String> anomalias = new ArrayList<>();
+      throw new DateTimeParseException("Fecha nula o vacia", "", 0);
+    }
 
-        // -------------------------------------------------
-        // VALIDACION Y NORMALIZACION DE FECHA
-        // -------------------------------------------------
+    String fechaOriginal = movimiento.getFecha().trim();
 
-        if (movimiento.getFecha() == null
-                || movimiento.getFecha().isBlank()) {
+    LocalDate fechaNormalizada = convertirFecha(fechaOriginal);
 
-            throw new DateTimeParseException(
-                    "Fecha nula o vacia",
-                    "",
-                    0
-            );
-        }
+    movimiento.setFecha(fechaNormalizada.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
-        String fechaOriginal = movimiento.getFecha().trim();
+    // -------------------------------------------------
+    // VALIDACION DE MONTO
+    // -------------------------------------------------
 
-        LocalDate fechaNormalizada = convertirFecha(fechaOriginal);
+    if (movimiento.getMonto() == null) {
 
-        movimiento.setFecha(
-                fechaNormalizada.format(DateTimeFormatter.ISO_LOCAL_DATE)
-        );
+      throw new IllegalArgumentException("Monto nulo en cuenta " + movimiento.getCuentaId());
 
-        // -------------------------------------------------
-        // VALIDACION DE MONTO
-        // -------------------------------------------------
+    } else if (movimiento.getMonto().signum() < 0) {
+      anomalias.add("Monto negativo");
+    } else if (movimiento.getMonto().signum() == 0) {
 
-        if (movimiento.getMonto() == null) {
-
-            throw new IllegalArgumentException(
-                    "Monto nulo en cuenta "
-                            + movimiento.getCuentaId()
-            );
-
-        } else if (movimiento.getMonto().signum() == 0) {
-
-            anomalias.add("Monto igual a cero");
-        }
-
-        // -------------------------------------------------
-        // NORMALIZACION Y VALIDACION DEL TIPO DE MOVIMIENTO
-        // -------------------------------------------------
-
-        if (movimiento.getTransaccion() == null
-                || movimiento.getTransaccion().isBlank()) {
-
-            anomalias.add("Tipo de movimiento nulo o vacio");
-
-        } else {
-
-            String tipoOriginal = movimiento.getTransaccion();
-
-            String tipoNormalizado = normalizarTexto(tipoOriginal);
-
-            if (!tipoNormalizado.equals("deposito")
-                    && !tipoNormalizado.equals("retiro")
-                    && !tipoNormalizado.equals("compra")) {
-
-                anomalias.add(
-                        "Tipo de movimiento invalido: " + tipoOriginal
-                );
-
-            } else {
-
-                movimiento.setTransaccion(tipoNormalizado);
-            }
-        }
-
-        // -------------------------------------------------
-        // VALIDACION DE DESCRIPCION
-        // -------------------------------------------------
-
-        if (movimiento.getDescripcion() == null
-                || movimiento.getDescripcion().isBlank()) {
-
-            anomalias.add("Descripcion nula o vacia");
-
-        } else {
-
-            movimiento.setDescripcion(
-                    movimiento.getDescripcion().trim()
-            );
-        }
-
-        // -------------------------------------------------
-        // RESULTADO DE LAS VALIDACIONES
-        // -------------------------------------------------
-
-        if (!anomalias.isEmpty()) {
-
-            movimiento.setAnomalia(true);
-
-            movimiento.setDetalleAnomalia(
-                    String.join(" | ", anomalias)
-            );
-
-            System.out.println(
-                    "ANOMALIA cuenta "
-                            + movimiento.getCuentaId()
-                            + ": "
-                            + movimiento.getDetalleAnomalia()
-            );
-        }
-
-        return movimiento;
+      anomalias.add("Monto igual a cero");
     }
 
     // -------------------------------------------------
-    // CONVERSION DE FECHAS
+    // NORMALIZACION Y VALIDACION DEL TIPO DE MOVIMIENTO
     // -------------------------------------------------
 
-    private LocalDate convertirFecha(String fecha) {
+    if (movimiento.getTransaccion() == null || movimiento.getTransaccion().isBlank()) {
 
-        DateTimeParseException ultimoError = null;
+      anomalias.add("Tipo de movimiento nulo o vacio");
 
-        for (DateTimeFormatter formato : FORMATOS_FECHA) {
+    } else {
 
-            try {
+      String tipoOriginal = movimiento.getTransaccion();
 
-                return LocalDate.parse(fecha, formato);
+      String tipoNormalizado = normalizarTexto(tipoOriginal);
 
-            } catch (DateTimeParseException e) {
+      if (!tipoNormalizado.equals("deposito")
+          && !tipoNormalizado.equals("retiro")
+          && !tipoNormalizado.equals("compra")) {
 
-                ultimoError = e;
-            }
-        }
+        anomalias.add("Tipo de movimiento invalido: " + tipoOriginal);
 
-        throw new DateTimeParseException(
-                "Fecha invalida: " + fecha,
-                fecha,
-                0,
-                ultimoError
-        );
+      } else {
+
+        movimiento.setTransaccion(tipoNormalizado);
+      }
     }
 
     // -------------------------------------------------
-    // NORMALIZACION DE TEXTO
+    // VALIDACION DE DESCRIPCION
     // -------------------------------------------------
 
-    private String normalizarTexto(String texto) {
+    if (movimiento.getDescripcion() == null || movimiento.getDescripcion().isBlank()) {
 
-        String normalizado = Normalizer.normalize(
-                texto,
-                Normalizer.Form.NFD
-        );
+      anomalias.add("Descripcion nula o vacia");
 
-        normalizado = normalizado.replaceAll("\\p{M}", "");
+    } else {
 
-        return normalizado
-                .trim()
-                .toLowerCase(Locale.ROOT);
+      movimiento.setDescripcion(movimiento.getDescripcion().trim());
     }
+
+    // -------------------------------------------------
+    // RESULTADO DE LAS VALIDACIONES
+    // -------------------------------------------------
+
+    if (!anomalias.isEmpty()) {
+
+      movimiento.setAnomalia(true);
+
+      movimiento.setDetalleAnomalia(String.join(" | ", anomalias));
+
+      System.out.println(
+          "ANOMALIA cuenta " + movimiento.getCuentaId() + ": " + movimiento.getDetalleAnomalia());
+    }
+
+    return movimiento;
+  }
+
+  // -------------------------------------------------
+  // CONVERSION DE FECHAS
+  // -------------------------------------------------
+
+  private LocalDate convertirFecha(String fecha) {
+
+    DateTimeParseException ultimoError = null;
+
+    for (DateTimeFormatter formato : FORMATOS_FECHA) {
+
+      try {
+
+        return LocalDate.parse(fecha, formato);
+
+      } catch (DateTimeParseException e) {
+
+        ultimoError = e;
+      }
+    }
+
+    throw new DateTimeParseException("Fecha invalida: " + fecha, fecha, 0, ultimoError);
+  }
+
+  // -------------------------------------------------
+  // NORMALIZACION DE TEXTO
+  // -------------------------------------------------
+
+  private String normalizarTexto(String texto) {
+
+    String normalizado = Normalizer.normalize(texto, Normalizer.Form.NFD);
+
+    normalizado = normalizado.replaceAll("\\p{M}", "");
+
+    return normalizado.trim().toLowerCase(Locale.ROOT);
+  }
 }

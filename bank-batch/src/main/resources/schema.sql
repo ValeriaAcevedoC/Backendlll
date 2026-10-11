@@ -64,3 +64,14 @@ CREATE TABLE IF NOT EXISTS retiros_cajero (
     saldo_posterior NUMERIC(15,2) NOT NULL
 );
 
+
+-- Resultados históricos de Batch, independientes del saldo operativo de cuentas-service.
+CREATE TABLE IF NOT EXISTS resultados_intereses_mensuales(
+ periodo VARCHAR(7) NOT NULL,cuenta_id BIGINT NOT NULL,nombre VARCHAR(100),saldo NUMERIC(15,2),
+ edad INTEGER,tipo VARCHAR(30),tasa_interes NUMERIC(10,4),interes_calculado NUMERIC(15,2),
+ saldo_final NUMERIC(15,2),valida BOOLEAN,observacion VARCHAR(255),PRIMARY KEY(cuenta_id,periodo)
+);
+CREATE TABLE IF NOT EXISTS estados_cuenta_anuales(
+ cuenta_id BIGINT NOT NULL,anio INTEGER NOT NULL,total_movimientos INTEGER,total_ingresos NUMERIC(15,2),
+ total_egresos NUMERIC(15,2),saldo_anual NUMERIC(15,2),total_anomalias INTEGER,PRIMARY KEY(cuenta_id,anio)
+);

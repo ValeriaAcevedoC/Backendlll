@@ -1,26 +1,33 @@
 package cl.duoc.cuentas_service.repository;
 
-import cl.duoc.cuentas_service.model.Cuenta;
+import cl.duoc.bank_common.CuentaDTO;
+import java.util.*;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
-
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.Optional;
 
 @Repository
 public class CuentaRepository {
+  private final JdbcTemplate jdbc;
 
-    private final List<Cuenta> cuentas = List.of(
-        new Cuenta(201L, 101L, "corriente", new BigDecimal("450000")),
-        new Cuenta(202L, 102L, "ahorro", new BigDecimal("1200000")),
-        new Cuenta(203L, 103L, "corriente", new BigDecimal("87000")),
-        new Cuenta(204L, 104L, "ahorro", new BigDecimal("3050000")),
-        new Cuenta(205L, 105L, "corriente", new BigDecimal("15000"))
-    );
+  public CuentaRepository(JdbcTemplate j) {
+    jdbc = j;
+  }
 
-    public List<Cuenta> findAll() { return cuentas; }
+  public List<CuentaDTO> findAll() {
+    return jdbc.query("SELECT * FROM cuentas ORDER BY id", this::map);
+  }
 
-    public Optional<Cuenta> findById(Long id) {
-        return cuentas.stream().filter(c -> c.getId().equals(id)).findFirst();
-    }
+  public Optional<CuentaDTO> findById(Long id) {
+    return jdbc.query("SELECT * FROM cuentas WHERE id=?", this::map, id).stream().findFirst();
+  }
+
+  public CuentaDTO map(java.sql.ResultSet r, int n) throws java.sql.SQLException {
+    return new CuentaDTO(
+        r.getLong("id"),
+        r.getLong("cliente_id"),
+        r.getString("tipo"),
+        r.getBigDecimal("saldo"),
+        r.getString("estado"),
+        r.getTimestamp("fecha_apertura").toLocalDateTime());
+  }
 }

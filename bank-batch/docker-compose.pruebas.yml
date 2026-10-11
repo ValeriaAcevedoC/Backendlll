@@ -1,0 +1,105 @@
+services:
+  postgres:
+    container_name: eft-pruebas-postgres
+    ports: !override
+      - "15433:5432"
+    environment:
+      POSTGRES_DB: banco_pruebas
+      POSTGRES_USER: pruebas
+      POSTGRES_PASSWORD: pruebas-local
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pruebas -d banco_pruebas"]
+  kafka:
+    container_name: eft-pruebas-kafka
+    ports: !override
+      - "19092:9092"
+    environment:
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:19092
+  keycloak:
+    container_name: eft-pruebas-keycloak
+    ports: !override
+      - "18081:8080"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: pruebas
+      KC_BOOTSTRAP_ADMIN_PASSWORD: pruebas-admin-local
+      KC_HOSTNAME: http://localhost:18081
+  eureka-server:
+    container_name: eft-pruebas-eureka-server
+    ports: !override
+      - "18761:8761"
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      LOGGING_LEVEL_ROOT: WARN
+  config-server:
+    container_name: eft-pruebas-config-server
+    ports: !override
+      - "18888:8888"
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      LOGGING_LEVEL_ROOT: WARN
+  clientes-service:
+    container_name: eft-pruebas-clientes-service
+    ports: !override
+      - "18091:8091"
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      LOGGING_LEVEL_ROOT: WARN
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:18081/realms/banco
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/banco_pruebas
+      SPRING_DATASOURCE_USERNAME: pruebas
+      SPRING_DATASOURCE_PASSWORD: pruebas-local
+  cuentas-service:
+    container_name: eft-pruebas-cuentas-service
+    ports: !override
+      - "18092:8092"
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      LOGGING_LEVEL_ROOT: WARN
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:18081/realms/banco
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/banco_pruebas
+      SPRING_DATASOURCE_USERNAME: pruebas
+      SPRING_DATASOURCE_PASSWORD: pruebas-local
+  pagos-service:
+    container_name: eft-pruebas-pagos-service
+    ports: !override
+      - "18093:8093"
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      LOGGING_LEVEL_ROOT: WARN
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:18081/realms/banco
+  bank-batch:
+    container_name: eft-pruebas-bank-batch
+    ports: !override
+      - "18443:8443"
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      LOGGING_LEVEL_ROOT: WARN
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:18081/realms/banco
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/banco_pruebas
+      SPRING_DATASOURCE_USERNAME: pruebas
+      SPRING_DATASOURCE_PASSWORD: pruebas-local
+  bff-web:
+    container_name: eft-pruebas-bff-web
+    ports: !override
+      - "18451:8451"
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      LOGGING_LEVEL_ROOT: WARN
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:18081/realms/banco
+  bff-movil:
+    container_name: eft-pruebas-bff-movil
+    ports: !override
+      - "18452:8452"
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      LOGGING_LEVEL_ROOT: WARN
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:18081/realms/banco
+  bff-cajero:
+    container_name: eft-pruebas-bff-cajero
+    ports: !override
+      - "18453:8453"
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      LOGGING_LEVEL_ROOT: WARN
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:18081/realms/banco
+

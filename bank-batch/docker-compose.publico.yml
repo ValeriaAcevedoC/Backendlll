@@ -1,0 +1,48 @@
+# Compatibilidad con comandos anteriores: docker-compose.yml ya incluye HTTPS.
+# Usar junto con docker-compose.yml y definir PUBLIC_HOST en .env.
+# El certificado incluido es de demostración; usar uno confiable en producción.
+services:
+  keycloak:
+    environment:
+      KC_HOSTNAME: "https://${PUBLIC_HOST:?Define PUBLIC_HOST con la IP publica o el dominio}:8081"
+      KC_HTTP_ENABLED: "true"
+      KC_HTTPS_KEY_STORE_FILE: /opt/keycloak/conf/banco.p12
+      KC_HTTPS_KEY_STORE_TYPE: PKCS12
+      KC_HTTPS_KEY_STORE_PASSWORD: ${SSL_KEYSTORE_PASSWORD:-changeit}
+    ports: !override
+      - "8081:8443"
+    volumes:
+      - type: bind
+        source: ./src/main/resources/bank-batch.p12
+        target: /opt/keycloak/conf/banco.p12
+        read_only: true
+        bind:
+          create_host_path: false
+
+  clientes-service:
+    environment:
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: "https://${PUBLIC_HOST:?Define PUBLIC_HOST}:8081/realms/banco"
+
+  cuentas-service:
+    environment:
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: "https://${PUBLIC_HOST:?Define PUBLIC_HOST}:8081/realms/banco"
+
+  pagos-service:
+    environment:
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: "https://${PUBLIC_HOST:?Define PUBLIC_HOST}:8081/realms/banco"
+
+  bank-batch:
+    environment:
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: "https://${PUBLIC_HOST:?Define PUBLIC_HOST}:8081/realms/banco"
+
+  bff-web:
+    environment:
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: "https://${PUBLIC_HOST:?Define PUBLIC_HOST}:8081/realms/banco"
+
+  bff-movil:
+    environment:
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: "https://${PUBLIC_HOST:?Define PUBLIC_HOST}:8081/realms/banco"
+
+  bff-cajero:
+    environment:
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: "https://${PUBLIC_HOST:?Define PUBLIC_HOST}:8081/realms/banco"

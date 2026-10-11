@@ -9,36 +9,37 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 @Configuration
 public class BatchConfig {
 
-    @Value("${batch.threads.core:3}")
-    private int corePoolSize;
+  @Value("${batch.threads.core:1}")
+  private int corePoolSize;
 
-    @Value("${batch.threads.max:3}")
-    private int maxPoolSize;
+  @Value("${batch.threads.max:1}")
+  private int maxPoolSize;
 
-    @Value("${batch.queue.capacity:25}")
-    private int queueCapacity;
+  @Value("${batch.queue.capacity:25}")
+  private int queueCapacity;
 
-    @Bean
-    public AsyncTaskExecutor taskExecutor() {
+  @Bean
+  public AsyncTaskExecutor taskExecutor() {
 
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
 
-        executor.setCorePoolSize(corePoolSize);
-        executor.setMaxPoolSize(maxPoolSize);
-        executor.setQueueCapacity(queueCapacity);
-        executor.setThreadNamePrefix("Batch-Thread-");
+    executor.setCorePoolSize(corePoolSize);
+    executor.setMaxPoolSize(maxPoolSize);
+    executor.setQueueCapacity(queueCapacity);
+    executor.setRejectedExecutionHandler(
+        new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+    executor.setThreadNamePrefix("Batch-Thread-");
 
-        executor.initialize();
+    executor.initialize();
 
-        System.out.println(
-                "CONFIGURACION BATCH -> Threads core: "
-                        + corePoolSize
-                        + " | Threads max: "
-                        + maxPoolSize
-                        + " | Queue: "
-                        + queueCapacity
-        );
+    System.out.println(
+        "CONFIGURACION BATCH -> Threads core: "
+            + corePoolSize
+            + " | Threads max: "
+            + maxPoolSize
+            + " | Queue: "
+            + queueCapacity);
 
-        return executor;
-    }
+    return executor;
+  }
 }

@@ -35,3 +35,6 @@ build/
 ### Local secrets ###
 .env
 **/.env
+
+# Logs locales de validación
+validacion-*.log

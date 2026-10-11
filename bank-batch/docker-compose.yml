@@ -45,13 +45,23 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
-      KC_HOSTNAME: "http://localhost:8081"
+      KC_HOSTNAME: "https://${PUBLIC_HOST:-localhost}:8081"
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HTTPS_KEY_STORE_FILE: /opt/keycloak/conf/banco.p12
+      KC_HTTPS_KEY_STORE_TYPE: PKCS12
+      KC_HTTPS_KEY_STORE_PASSWORD: ${SSL_KEYSTORE_PASSWORD:-changeit}
       KC_HEALTH_ENABLED: "true"
     ports:
-      - "8081:8080"
+      - "8081:8443"
     volumes:
       - ./keycloak/realm-banco.json:/opt/keycloak/data/import/realm-banco.json:ro
+      - type: bind
+        source: ./src/main/resources/bank-batch.p12
+        target: /opt/keycloak/conf/banco.p12
+        read_only: true
+        bind:
+          create_host_path: false
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000'"]
       interval: 10s
@@ -89,10 +99,14 @@ services:
 
   clientes-service:
     build:
-      context: ../clientes-service
+      context: ..
+      dockerfile: Dockerfile.servicio
+      args:
+        MODULE: clientes-service
     image: banco-clientes:latest
-    container_name: banco-clientes
     depends_on:
+      postgres:
+        condition: service_healthy
       eureka-server:
         condition: service_healthy
       config-server:
@@ -100,9 +114,14 @@ services:
       keycloak:
         condition: service_healthy
     environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
       SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
-      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:8081/realms/banco
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: "https://${PUBLIC_HOST:-localhost}:8081/realms/banco"
       SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/banco/protocol/openid-connect/certs
     ports:
       - "8091:8091"
@@ -115,10 +134,16 @@ services:
 
   cuentas-service:
     build:
-      context: ../cuentas-service
+      context: ..
+      dockerfile: Dockerfile.servicio
+      args:
+        MODULE: cuentas-service
     image: banco-cuentas:latest
-    container_name: banco-cuentas
     depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
       eureka-server:
         condition: service_healthy
       config-server:
@@ -126,9 +151,15 @@ services:
       keycloak:
         condition: service_healthy
     environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
-      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:8081/realms/banco
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: "https://${PUBLIC_HOST:-localhost}:8081/realms/banco"
       SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/banco/protocol/openid-connect/certs
     ports:
       - "8092:8092"
@@ -141,7 +172,10 @@ services:
 
   bank-batch:
     build:
-      context: .
+      context: ..
+      dockerfile: Dockerfile.servicio
+      args:
+        MODULE: bank-batch
     image: banco-bank-batch:latest
     container_name: banco-bank-batch
     depends_on:
@@ -165,8 +199,9 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
-      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:8081/realms/banco
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: "https://${PUBLIC_HOST:-localhost}:8081/realms/banco"
       SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/banco/protocol/openid-connect/certs
       SERVICES_CLIENTES_BASE_URL: http://clientes-service
       SSL_KEYSTORE_PASSWORD: ${SSL_KEYSTORE_PASSWORD:-changeit}
@@ -178,6 +213,130 @@ services:
       timeout: 5s
       retries: 15
       start_period: 35s
+
+  pagos-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile.servicio
+      args:
+        MODULE: pagos-service
+    image: banco-pagos-service:latest
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: "https://${PUBLIC_HOST:-localhost}:8081/realms/banco"
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/banco/protocol/openid-connect/certs
+      SSL_KEYSTORE_PASSWORD: ${SSL_KEYSTORE_PASSWORD:-changeit}
+    ports:
+      - "8093:8093"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8093/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  bff-web:
+    build:
+      context: ..
+      dockerfile: Dockerfile.servicio
+      args:
+        MODULE: bff-web
+    image: banco-bff-web:latest
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: "https://${PUBLIC_HOST:-localhost}:8081/realms/banco"
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/banco/protocol/openid-connect/certs
+      SSL_KEYSTORE_PASSWORD: ${SSL_KEYSTORE_PASSWORD:-changeit}
+    ports:
+      - "8451:8451"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--insecure", "https://localhost:8451/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  bff-movil:
+    build:
+      context: ..
+      dockerfile: Dockerfile.servicio
+      args:
+        MODULE: bff-movil
+    image: banco-bff-movil:latest
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: "https://${PUBLIC_HOST:-localhost}:8081/realms/banco"
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/banco/protocol/openid-connect/certs
+      SSL_KEYSTORE_PASSWORD: ${SSL_KEYSTORE_PASSWORD:-changeit}
+    ports:
+      - "8452:8452"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--insecure", "https://localhost:8452/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  bff-cajero:
+    build:
+      context: ..
+      dockerfile: Dockerfile.servicio
+      args:
+        MODULE: bff-cajero
+    image: banco-bff-cajero:latest
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: "https://${PUBLIC_HOST:-localhost}:8081/realms/banco"
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/banco/protocol/openid-connect/certs
+      SSL_KEYSTORE_PASSWORD: ${SSL_KEYSTORE_PASSWORD:-changeit}
+    ports:
+      - "8453:8453"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--insecure", "https://localhost:8453/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
 
 volumes:
   banco_data:
